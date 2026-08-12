@@ -55,7 +55,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .connection-status.waiting::before { background: #e0a63c; box-shadow: 0 0 0 3px rgba(224,166,60,.14); }
 
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 390px; height: calc(100dvh - 74px); }
-.tree-pane { position: relative; min-width: 0; overflow: hidden; background: radial-gradient(circle at center, #fff 0, #fbfcfe 70%, #f7f8fb 100%); border-right: 1px solid var(--border); }
+.tree-pane {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background-color: #fafbfc;
+  background-image:
+    linear-gradient(rgba(112, 119, 137, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(112, 119, 137, .055) 1px, transparent 1px),
+    linear-gradient(rgba(112, 119, 137, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(112, 119, 137, .035) 1px, transparent 1px);
+  background-size: 24px 24px, 24px 24px, 120px 120px, 120px 120px;
+  border-right: 1px solid var(--border);
+}
 .view-tabs { position: absolute; top: 18px; left: 18px; z-index: 8; display: flex; align-items: center; gap: 9px; }
 .view-tab { height: 39px; display: inline-flex; align-items: center; gap: 8px; padding: 0 13px; border: 1px solid transparent; background: transparent; border-radius: 9px; color: #3e4250; cursor: pointer; font-size: 13px; }
 .view-tab.active { color: var(--accent); background: var(--surface); border-color: var(--border); box-shadow: 0 2px 8px rgba(31,36,55,.05); }
@@ -64,8 +76,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .tree-stage { position: absolute; top: 0; left: 0; will-change: transform; }
 .node-layer, .relationship-layer { position: absolute; inset: 0; }
 .relationship-layer { overflow: visible; pointer-events: none; }
-.relationship-paths path { fill: none; stroke: #aeb4c4; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.relationship-paths .partner-path { stroke: #9ea5b6; }
+.relationship-paths path { fill: none; stroke: #727b8e; stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.relationship-paths .partner-path { stroke: #626c80; stroke-width: 3.2; }
+.relationship-paths .family-path { stroke: #727b8e; }
 
 .person-node { position: absolute; width: 136px; height: 192px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); box-shadow: 0 4px 13px rgba(34,39,58,.08); overflow: visible; transition: border-color .16s, box-shadow .16s, transform .16s; }
 .person-node:hover { border-color: #c6c9d5; transform: translateY(-2px); box-shadow: 0 7px 18px rgba(34,39,58,.11); }
