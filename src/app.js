@@ -12,7 +12,7 @@ const MAX_ZOOM = 1.65;
 
 const state = {
   tree: null,
-  selectedId: 'arjan',
+  selectedId: null,
   view: 'family',
   zoom: 1,
   panX: 0,
@@ -22,8 +22,6 @@ const state = {
   addAnchorId: null,
   addRelationship: null,
   editingId: null,
-  undo: [],
-  redo: [],
   drag: null,
   photoDataUrl: '',
   photoFile: null,
@@ -63,8 +61,6 @@ const els = {
   personPhoto: document.querySelector('#personPhotoInput'),
   photoPreview: document.querySelector('#photoPreview'),
   formStatus: document.querySelector('#formStatus'),
-  undoButton: document.querySelector('#undoButton'),
-  redoButton: document.querySelector('#redoButton'),
   toastRegion: document.querySelector('#toastRegion'),
   connectionStatus: document.querySelector('#connectionStatus'),
   authDialog: document.querySelector('#authDialog'),
@@ -127,6 +123,7 @@ function ageFor(person) {
       return Math.max(0, age);
     }
   }
+  if (person.estimatedAge === null || person.estimatedAge === undefined || person.estimatedAge === '') return null;
   return Number.isFinite(Number(person.estimatedAge)) ? Number(person.estimatedAge) : null;
 }
 
@@ -259,13 +256,44 @@ function nodeMarkup(person) {
   `;
 }
 
+function renderRootNode() {
+  const stageWidth = 900;
+  const stageHeight = 650;
+  els.stage.hidden = false;
+  els.stage.style.width = `${stageWidth}px`;
+  els.stage.style.height = `${stageHeight}px`;
+  els.relationshipLayer.setAttribute('viewBox', `0 0 ${stageWidth} ${stageHeight}`);
+  els.relationshipLayer.setAttribute('width', stageWidth);
+  els.relationshipLayer.setAttribute('height', stageHeight);
+  els.relationshipLayer.innerHTML = '';
+  els.nodeLayer.innerHTML = `
+    <article class="root-node" aria-label="Add the root person">
+      <span class="root-node-mark" aria-hidden="true">＋</span>
+      <strong>Add the root person</strong>
+      <span>Every family branch will connect from here.</span>
+      <button class="primary-button" type="button">Start your tree</button>
+    </article>`;
+  els.nodeLayer.querySelector('.root-node button').addEventListener('click', () => {
+    state.addAnchorId = null;
+    state.addRelationship = null;
+    openPersonDialog();
+  });
+  applyTransform();
+}
+
 function renderTree() {
   if (!state.tree) return;
   const visible = visibleIds();
-  els.emptyState.hidden = state.tree.people.length > 0;
-  els.stage.hidden = state.tree.people.length === 0 || state.view === 'list';
+  els.emptyState.hidden = true;
   els.nodeLayer.innerHTML = '';
   els.relationshipLayer.innerHTML = '';
+
+  if (state.tree.people.length === 0) {
+    renderRootNode();
+    return;
+  }
+
+  els.stage.hidden = state.view === 'list';
 
   if (state.view === 'list') {
     renderListView(visible);
@@ -496,14 +524,11 @@ function closeDialog(dialog) {
 function clearTreeView() {
   state.tree = null;
   state.selectedId = null;
-  state.undo = [];
-  state.redo = [];
   els.familyName.textContent = 'Family Tree';
   els.nodeLayer.innerHTML = '';
   els.relationshipLayer.innerHTML = '';
   els.detailsContent.innerHTML = '<div class="panel-empty"><h2>Sign in to continue</h2><p>Your private family tree will appear here.</p></div>';
   els.emptyState.hidden = true;
-  updateHistoryButtons();
 }
 
 function preferredTreeId() {
@@ -547,8 +572,6 @@ async function loadConnectedTree(treeId) {
   if (state.stopTreeSubscription) await state.stopTreeSubscription();
   state.tree = tree;
   state.selectedId = tree.people.some(person => person.id === state.selectedId) ? state.selectedId : tree.people[0]?.id || null;
-  state.undo = [];
-  state.redo = [];
   rememberTree(tree.id);
   renderAll();
   requestAnimationFrame(fitTree);
@@ -653,37 +676,12 @@ function openEditDialog(personId) {
   els.personDialog.showModal();
 }
 
-function snapshot() {
-  return JSON.stringify({ people: state.tree.people, relationships: state.tree.relationships, selectedId: state.selectedId });
-}
-
-function pushUndo() {
-  state.undo.push(snapshot());
-  if (state.undo.length > 50) state.undo.shift();
-  state.redo = [];
-  updateHistoryButtons();
-}
-
-function restoreSnapshot(serialized) {
-  const data = JSON.parse(serialized);
-  state.tree.people = data.people;
-  state.tree.relationships = data.relationships;
-  state.selectedId = data.selectedId;
-  renderAll();
-}
-
-function updateHistoryButtons() {
-  els.undoButton.disabled = state.undo.length === 0;
-  els.redoButton.disabled = state.redo.length === 0;
-}
-
 async function savePersonFromForm(event) {
   event.preventDefault();
   const fullName = els.personName.value.trim();
   if (!fullName) return;
   els.formStatus.textContent = 'Saving…';
   try {
-    pushUndo();
     const payload = {
       fullName,
       dateOfBirth: els.personDob.value || null,
@@ -691,18 +689,19 @@ async function savePersonFromForm(event) {
       isDeceased: !els.personLiving.checked,
       dateOfDeath: els.personDeath.value || null,
       birthplace: els.personBirthplace.value.trim(),
-      about: els.personAbout.value.trim(),
-      photoUrl: state.photoDataUrl || ''
+      about: els.personAbout.value.trim()
     };
 
     let photoWarning = '';
 
     if (state.editingId) {
+      const currentPerson = personById(state.editingId);
+      const currentPhotoUrl = currentPerson.photoUrl || '';
       const updated = await familyService.updatePerson(state.tree.id, state.editingId, payload);
-      Object.assign(personById(state.editingId), payload, updated);
-      if (state.photoFile && familyService.mode === 'supabase') {
+      Object.assign(currentPerson, updated, { photoUrl: currentPhotoUrl });
+      if (state.photoFile) {
         try {
-          Object.assign(personById(state.editingId), await familyService.uploadPersonPhoto(state.tree.id, state.editingId, state.photoFile));
+          Object.assign(currentPerson, await familyService.uploadPersonPhoto(state.tree.id, state.editingId, state.photoFile));
         } catch (error) {
           console.error(error);
           photoWarning = 'Profile saved, but the photo could not be uploaded.';
@@ -712,18 +711,29 @@ async function savePersonFromForm(event) {
       toast('Person updated');
     } else {
       const created = await familyService.createPerson(state.tree.id, payload);
-      const localCreated = { ...payload, ...created, photoUrl: payload.photoUrl || created.photoUrl || '' };
+      const localCreated = { ...created };
       state.tree.people.push(localCreated);
-      if (state.photoFile && familyService.mode === 'supabase') {
+      if (state.addAnchorId && state.addRelationship) {
+        try {
+          await addRelationshipForNewPerson(state.addAnchorId, localCreated.id, state.addRelationship);
+        } catch (relationshipError) {
+          state.tree.people = state.tree.people.filter(person => person.id !== localCreated.id);
+          state.tree.relationships = state.tree.relationships.filter(rel => rel.personAId !== localCreated.id && rel.personBId !== localCreated.id);
+          try {
+            await familyService.deletePerson(state.tree.id, localCreated.id);
+          } catch (rollbackError) {
+            console.error('Unable to roll back incomplete relative creation', rollbackError);
+          }
+          throw relationshipError;
+        }
+      }
+      if (state.photoFile) {
         try {
           Object.assign(localCreated, await familyService.uploadPersonPhoto(state.tree.id, localCreated.id, state.photoFile));
         } catch (error) {
           console.error(error);
           photoWarning = 'Person saved, but the photo could not be uploaded.';
         }
-      }
-      if (state.addAnchorId && state.addRelationship) {
-        await addRelationshipForNewPerson(state.addAnchorId, localCreated.id, state.addRelationship);
       }
       state.selectedId = localCreated.id;
       toast('Person added');
@@ -733,8 +743,6 @@ async function savePersonFromForm(event) {
     requestAnimationFrame(() => centreOnSelected());
     if (photoWarning) toast(photoWarning);
   } catch (error) {
-    state.undo.pop();
-    updateHistoryButtons();
     els.formStatus.textContent = error?.message || 'Unable to save. Please try again.';
   }
 }
@@ -764,7 +772,7 @@ function setView(view) {
 
 function handleSearch(query) {
   const q = query.trim().toLowerCase();
-  if (!q) {
+  if (!q || !state.tree) {
     els.searchResults.hidden = true;
     els.searchResults.innerHTML = '';
     return;
@@ -792,7 +800,6 @@ function renderAll() {
   els.familyName.textContent = state.tree?.name || 'Family Tree';
   renderTree();
   renderDetails();
-  updateHistoryButtons();
 }
 
 function bindEvents() {
@@ -803,18 +810,19 @@ function bindEvents() {
       return;
     }
     if (state.selectedId) openRelationshipDialog(state.selectedId);
-    else openPersonDialog();
+    else {
+      state.addAnchorId = null;
+      state.addRelationship = null;
+      openPersonDialog();
+    }
   });
   document.querySelector('#familyMenuButton').addEventListener('click', () => {
-    if (familyService.mode === 'demo') toast('Demo family tree');
-    else if (state.session) showTreeChooser().catch(error => toast(error?.message || 'Unable to load family trees.'));
+    if (state.session) showTreeChooser().catch(error => toast(error?.message || 'Unable to load family trees.'));
   });
   document.querySelector('#accountButton').addEventListener('click', () => {
-    if (familyService.mode === 'demo') toast('Configure Supabase to enable private accounts');
-    else if (state.session) showDialog(els.accountDialog);
+    if (state.session) showDialog(els.accountDialog);
     else showDialog(els.authDialog);
   });
-  document.querySelector('#emptyAddButton').addEventListener('click', openPersonDialog);
   document.querySelector('#zoomInButton').addEventListener('click', () => setZoom(state.zoom + 0.12));
   document.querySelector('#zoomOutButton').addEventListener('click', () => setZoom(state.zoom - 0.12));
   document.querySelector('#fitButton').addEventListener('click', fitTree);
@@ -823,8 +831,6 @@ function bindEvents() {
   els.search.addEventListener('keydown', event => { if (event.key === 'Escape') { els.search.value = ''; els.searchResults.hidden = true; } });
   document.addEventListener('keydown', event => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); els.search.focus(); }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) { event.preventDefault(); els.undoButton.click(); }
-    if ((event.metaKey || event.ctrlKey) && (event.key.toLowerCase() === 'y' || (event.shiftKey && event.key.toLowerCase() === 'z'))) { event.preventDefault(); els.redoButton.click(); }
   });
 
   els.relationshipDialog.querySelectorAll('[data-relationship]').forEach(button => button.addEventListener('click', () => {
@@ -834,7 +840,7 @@ function bindEvents() {
   }));
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => document.querySelector(`#${button.dataset.closeDialog}`).close()));
   els.authDialog.addEventListener('cancel', event => {
-    if (familyService.mode === 'supabase' && !state.session) event.preventDefault();
+    if (!state.session) event.preventDefault();
   });
   els.authForm.addEventListener('submit', async event => {
     event.preventDefault();
@@ -880,21 +886,6 @@ function bindEvents() {
     reader.readAsDataURL(file);
   });
 
-  els.undoButton.addEventListener('click', () => {
-    if (!state.undo.length) return;
-    state.redo.push(snapshot());
-    restoreSnapshot(state.undo.pop());
-    updateHistoryButtons();
-    toast('Change undone');
-  });
-  els.redoButton.addEventListener('click', () => {
-    if (!state.redo.length) return;
-    state.undo.push(snapshot());
-    restoreSnapshot(state.redo.pop());
-    updateHistoryButtons();
-    toast('Change redone');
-  });
-
   document.querySelector('#closeDetailsButton').addEventListener('click', () => {
     els.detailsPanel.classList.remove('mobile-open');
   });
@@ -931,16 +922,6 @@ function bindEvents() {
 async function init() {
   bindEvents();
   try {
-    if (familyService.mode === 'demo') {
-      state.tree = await familyService.loadTree();
-      if (!personById(state.selectedId)) state.selectedId = state.tree.people[0]?.id || null;
-      renderAll();
-      requestAnimationFrame(() => fitTree());
-      setConnectionStatus('Demo');
-      toast('Demo mode — connect Supabase to save permanently');
-      return;
-    }
-
     const session = await familyService.getSession();
     await handleAuthSession(session, 'INITIAL_SESSION');
     await familyService.onAuthStateChange((event, nextSession) => {

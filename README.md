@@ -6,8 +6,7 @@ The approved product/UI specification is in [`DESIGN.md`](./DESIGN.md), with the
 
 ## Current status
 
-The zero-build static app now includes the Phase 1 family-tree experience and
-the core Phase 2 connected-mode path:
+The zero-build static app now runs exclusively against Supabase and includes:
 
 - portrait family-member cards
 - relationship connectors
@@ -15,10 +14,10 @@ the core Phase 2 connected-mode path:
 - pan / zoom / fit / centre controls
 - family / ancestors / descendants / list views
 - search and focus
-- local add-relative flow
-- demo data mode
+- persistent add-relative flow
+- a UI-only root node for an empty tree
 - passwordless Supabase email sign-in
-- family-tree discovery and creation
+- family-tree discovery and reliable first-tree creation
 - Supabase-backed people and relationship writes
 - private photo uploads with short-lived signed URLs
 - live refresh when another editor changes a tree
@@ -29,34 +28,37 @@ the core Phase 2 connected-mode path:
 Because the app uses ES modules, serve it over HTTP rather than opening `index.html` directly.
 
 ```bash
-python3 -m http.server 8080
+python3 -m http.server 8092
 ```
 
-Then open `http://localhost:8080`.
+Then open `http://localhost:8092`.
 
 ## Supabase configuration
 
-The app runs in demo mode when Supabase is not configured.
-
-Copy/edit `src/config.js` and provide:
+The app has no demo/local-data fallback. Every person, relationship, tree and
+photo comes from Supabase. `src/config.js` must provide the project URL and a
+browser-safe publishable key:
 
 ```js
 export const config = {
   supabaseUrl: 'https://YOUR_PROJECT.supabase.co',
-  supabaseAnonKey: 'YOUR_PUBLISHABLE_OR_ANON_KEY',
+  supabaseAnonKey: 'sb_publishable_...',
   defaultTreeId: ''
 };
 ```
 
-Run `supabase/migrations/001_initial_schema.sql` in the Supabase SQL editor or through the Supabase CLI before enabling connected mode.
+Apply the SQL migrations in `supabase/migrations/` through the Supabase CLI
+before using the app. They intentionally contain no family seed data, and local
+Supabase seeding is disabled.
 
 In Supabase Auth settings, add both the local URL and the deployed GitHub Pages
 URL to the allowed redirect URLs. Email sign-in links return to the app URL that
 requested them.
 
-When connected mode starts, signed-in members can choose any tree shared with
-them or create a new private tree. The selected tree is remembered in the URL
-and browser storage. Leave `defaultTreeId` blank unless this deployment should
+Signed-in members can choose any shared tree or create a new private tree. A
+new tree contains no people; the canvas shows one UI-only root node that creates
+the first persisted person. The selected tree is remembered in the URL and
+browser storage. Leave `defaultTreeId` blank unless this deployment should
 always prefer one specific tree.
 
 Never put a Supabase service-role key in this repository or in browser code.

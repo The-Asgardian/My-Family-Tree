@@ -172,12 +172,11 @@ Mobile/tablet:
 - Pinch zoom where supported.
 - Compact floating toolbar.
 
-### 3.7 Undo / redo
+### 3.7 Persistent history
 
-Two levels:
-
-1. **Immediate client undo/redo** for the current session.
-2. **Persistent history** from the `change_log` table, available in Activity and restorable by authorised users.
+Changes are recorded in the backend `change_log` table. A future Activity UI can
+restore authorised changes from that persistent history; the app must not offer
+client-only undo that diverges from Supabase.
 
 Destructive actions require confirmation and remain recoverable where practical.
 
@@ -377,14 +376,14 @@ V1 / early implementation:
 - Search and centre.
 - Fit tree.
 - Remember zoom/viewport per browser session.
-- Keyboard shortcuts: search, zoom, fit, undo/redo.
+- Keyboard shortcuts: search, zoom and fit.
 - Auto-calculate age from DOB.
 - Duplicate-person warning before create.
 - Inline empty states such as `Add partner` / `Add child`.
 - Photo crop/position workflow.
 - Activity log.
 - Optimistic save feedback.
-- Toasts for save/error/undo.
+- Toasts for save and error feedback.
 - Unsaved-change protection in forms.
 - Skeleton loading state.
 - Friendly offline/network-error state.
@@ -409,8 +408,8 @@ Activity UI is not a permanent bottom panel. It opens from the top-right activit
 Example entries:
 
 - Raj added Priya Hayre.
-- Priya updated Jas Hayre's date of birth.
-- Arjan changed Manpreet's profile photo.
+- A family editor updated a relative's date of birth.
+- A family editor changed a profile photo.
 
 Each entry contains enough structured data to support future restore/revert actions.
 
@@ -460,10 +459,10 @@ This is intentionally simple for the first implementation and can later move to 
 - Supabase Storage.
 - Supabase Realtime.
 
-### Runtime modes
+### Runtime mode
 
-- **Demo mode:** mock family data, usable without Supabase configuration.
-- **Connected mode:** Supabase-backed authentication, persistence and realtime sync.
+- **Backend-only mode:** Supabase-backed authentication, persistence and realtime sync. There is no mock-data fallback.
+- An empty persisted tree renders one UI-only root node. Creating that root writes the first real person to Supabase; every later family member is connected from persisted people.
 
 ## 15. Realtime behaviour
 
