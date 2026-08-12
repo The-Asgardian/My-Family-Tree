@@ -5,9 +5,9 @@ const CARD_W = 136;
 const CARD_H = 192;
 const PHOTO_H = 142;
 const PARTNER_GAP = 58;
-const GROUP_GAP = 86;
-const ROW_GAP = 118;
-const MIN_ZOOM = 0.35;
+const GROUP_GAP = 72;
+const ROW_GAP = 150;
+const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 1.65;
 
 const state = {
@@ -189,42 +189,151 @@ function makeGroups(generationPeople) {
   return groups;
 }
 
+function groupMemberOffset(group, personId) {
+  const index = group.people.findIndex(person => person.id === personId);
+  if (index < 0) return 0;
+  return index * (CARD_W + PARTNER_GAP) + CARD_W / 2 - group.width / 2;
+}
+
 function layoutTree() {
   state.positions.clear();
   const genMap = determineGenerations();
   const visible = visibleIds();
-  const generations = [...new Set([...genMap.entries()].filter(([id]) => visible.has(id)).map(([, g]) => g))].sort((a, b) => a - b);
-  const rows = [];
-  let maxWidth = 600;
+  const personOrder = new Map(state.tree.people.map((person, index) => [person.id, index]));
+  const generations = [...new Set([...genMap.entries()]
+    .filter(([id]) => visible.has(id))
+    .map(([, generation]) => generation))].sort((a, b) => a - b);
+  const groups = [];
+  const groupByPerson = new Map();
 
-  for (const g of generations) {
-    const rowPeople = state.tree.people.filter(p => visible.has(p.id) && genMap.get(p.id) === g);
-    const groups = makeGroups(rowPeople);
-    const widths = groups.map(group => group.length === 2 ? CARD_W * 2 + PARTNER_GAP : CARD_W);
-    const total = widths.reduce((a, b) => a + b, 0) + Math.max(0, groups.length - 1) * GROUP_GAP;
-    maxWidth = Math.max(maxWidth, total + 220);
-    rows.push({ g, groups, widths, total });
+  for (const generation of generations) {
+    const people = state.tree.people
+      .filter(person => visible.has(person.id) && genMap.get(person.id) === generation)
+      .sort((a, b) => personOrder.get(a.id) - personOrder.get(b.id));
+    for (const members of makeGroups(people)) {
+      const group = {
+        id: members.map(person => person.id).sort().join('|'),
+        people: members,
+        generation,
+        width: members.length * CARD_W + Math.max(0, members.length - 1) * PARTNER_GAP,
+        order: Math.min(...members.map(person => personOrder.get(person.id)))
+      };
+      groups.push(group);
+      members.forEach(person => groupByPerson.set(person.id, group));
+    }
   }
 
-  const stageWidth = Math.max(900, maxWidth);
-  const topPadding = 74;
-  const stageHeight = Math.max(650, topPadding + generations.length * (CARD_H + ROW_GAP) + 70);
+  const parentGroups = new Map(groups.map(group => [group.id, new Set()]));
+  const edgesByGroups = new Map();
+  for (const relationship of state.tree.relationships.filter(item => item.type === 'parent_child')) {
+    if (!visible.has(relationship.personAId) || !visible.has(relationship.personBId)) continue;
+    const parentGroup = groupByPerson.get(relationship.personAId);
+    const childGroup = groupByPerson.get(relationship.personBId);
+    if (!parentGroup || !childGroup || parentGroup.id === childGroup.id) continue;
+    parentGroups.get(childGroup.id).add(parentGroup.id);
+    const key = `${parentGroup.id}→${childGroup.id}`;
+    if (!edgesByGroups.has(key)) edgesByGroups.set(key, []);
+    edgesByGroups.get(key).push(relationship);
+  }
 
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    const row = rows[rowIndex];
-    let x = (stageWidth - row.total) / 2;
-    const y = topPadding + rowIndex * (CARD_H + ROW_GAP);
-    row.groups.forEach((group, index) => {
-      const width = row.widths[index];
-      if (group.length === 2) {
-        state.positions.set(group[0].id, { x, y });
-        state.positions.set(group[1].id, { x: x + CARD_W + PARTNER_GAP, y });
-      } else {
-        state.positions.set(group[0].id, { x: x + (width - CARD_W) / 2, y });
-      }
-      x += width + GROUP_GAP;
+  const groupById = new Map(groups.map(group => [group.id, group]));
+  const primaryParent = new Map();
+  for (const group of groups) {
+    const candidates = [...parentGroups.get(group.id)].map(id => groupById.get(id));
+    candidates.sort((a, b) => {
+      const aEdges = edgesByGroups.get(`${a.id}→${group.id}`)?.length || 0;
+      const bEdges = edgesByGroups.get(`${b.id}→${group.id}`)?.length || 0;
+      return bEdges - aEdges || b.generation - a.generation || a.order - b.order;
     });
+    if (candidates[0]) primaryParent.set(group.id, candidates[0].id);
   }
+
+  const primaryChildren = new Map(groups.map(group => [group.id, []]));
+  for (const group of groups) {
+    const parentId = primaryParent.get(group.id);
+    if (parentId) primaryChildren.get(parentId).push(group.id);
+  }
+  for (const children of primaryChildren.values()) {
+    children.sort((a, b) => groupById.get(a).order - groupById.get(b).order);
+  }
+
+  const subtreeWidth = new Map();
+  const measureSubtree = groupId => {
+    if (subtreeWidth.has(groupId)) return subtreeWidth.get(groupId);
+    const group = groupById.get(groupId);
+    const children = primaryChildren.get(groupId);
+    const childrenWidth = children.reduce((sum, childId) => sum + measureSubtree(childId), 0)
+      + Math.max(0, children.length - 1) * GROUP_GAP;
+    const width = Math.max(group.width, childrenWidth);
+    subtreeWidth.set(groupId, width);
+    return width;
+  };
+
+  const roots = groups
+    .filter(group => !primaryParent.has(group.id))
+    .sort((a, b) => a.order - b.order);
+  const centres = new Map();
+  const placeSubtree = (groupId, left) => {
+    const group = groupById.get(groupId);
+    const width = measureSubtree(groupId);
+    centres.set(groupId, left + width / 2);
+    const children = primaryChildren.get(groupId);
+    if (!children.length) return;
+    const childrenWidth = children.reduce((sum, childId) => sum + measureSubtree(childId), 0)
+      + Math.max(0, children.length - 1) * GROUP_GAP;
+    let childLeft = left + (width - childrenWidth) / 2;
+    children.forEach(childId => {
+      placeSubtree(childId, childLeft);
+      childLeft += measureSubtree(childId) + GROUP_GAP;
+    });
+    const childAnchors = [];
+    const parentOffsets = [];
+    children.forEach(childId => {
+      const childGroup = groupById.get(childId);
+      (edgesByGroups.get(`${groupId}→${childId}`) || []).forEach(edge => {
+        childAnchors.push(centres.get(childId) + groupMemberOffset(childGroup, edge.personBId));
+        parentOffsets.push(groupMemberOffset(group, edge.personAId));
+      });
+    });
+    if (childAnchors.length) {
+      const branchCentre = (Math.min(...childAnchors) + Math.max(...childAnchors)) / 2;
+      const parentOffset = parentOffsets.reduce((sum, offset) => sum + offset, 0) / parentOffsets.length;
+      centres.set(groupId, branchCentre - parentOffset);
+    }
+  };
+
+  let rootLeft = 0;
+  roots.forEach(root => {
+    placeSubtree(root.id, rootLeft);
+    rootLeft += measureSubtree(root.id) + GROUP_GAP;
+  });
+  groups.filter(group => !centres.has(group.id)).sort((a, b) => a.order - b.order).forEach(group => {
+    placeSubtree(group.id, rootLeft);
+    rootLeft += measureSubtree(group.id) + GROUP_GAP;
+  });
+
+  const rows = generations.map(generation => ({
+    generation,
+    groups: groups.filter(group => group.generation === generation).sort((a, b) => centres.get(a.id) - centres.get(b.id))
+  }));
+
+  const minLeft = Math.min(...groups.map(group => centres.get(group.id) - group.width / 2));
+  const maxRight = Math.max(...groups.map(group => centres.get(group.id) + group.width / 2));
+  const horizontalPadding = 130;
+  const horizontalShift = horizontalPadding - minLeft;
+  const stageWidth = Math.max(900, maxRight - minLeft + horizontalPadding * 2);
+  const topPadding = 94;
+  const stageHeight = Math.max(650, topPadding + rows.length * CARD_H + Math.max(0, rows.length - 1) * ROW_GAP + 94);
+
+  rows.forEach((row, rowIndex) => {
+    const y = topPadding + rowIndex * (CARD_H + ROW_GAP);
+    row.groups.forEach(group => {
+      const groupLeft = centres.get(group.id) + horizontalShift - group.width / 2;
+      group.people.forEach((person, memberIndex) => {
+        state.positions.set(person.id, { x: groupLeft + memberIndex * (CARD_W + PARTNER_GAP), y });
+      });
+    });
+  });
 
   els.stage.style.width = `${stageWidth}px`;
   els.stage.style.height = `${stageHeight}px`;
@@ -335,6 +444,7 @@ function renderListView(visible) {
 function drawRelationships(visible) {
   const paths = [];
   const partnerPairs = new Set();
+  const partnerKeys = new Set();
 
   for (const rel of state.tree.relationships) {
     if (!visible.has(rel.personAId) || !visible.has(rel.personBId)) continue;
@@ -345,6 +455,7 @@ function drawRelationships(visible) {
       const key = [rel.personAId, rel.personBId].sort().join('|');
       if (partnerPairs.has(key)) continue;
       partnerPairs.add(key);
+      partnerKeys.add(key);
       const left = a.x < b.x ? a : b;
       const right = a.x < b.x ? b : a;
       const y = left.y + PHOTO_H * 0.64;
@@ -364,23 +475,27 @@ function drawRelationships(visible) {
 
   for (const [parentKey, childSet] of childrenByParentSet.entries()) {
     const parentIds = parentKey.split('|').filter(Boolean);
-    const parentPositions = parentIds.map(id => state.positions.get(id)).filter(Boolean);
-    if (!parentPositions.length) continue;
-    const parentCentre = parentPositions.reduce((sum, pos) => sum + pos.x + CARD_W / 2, 0) / parentPositions.length;
-    const parentBottom = Math.max(...parentPositions.map(pos => pos.y + CARD_H));
-    const children = [...childSet].map(id => ({ id, pos: state.positions.get(id) })).filter(v => v.pos);
+    const parents = parentIds.map(id => ({ id, pos: state.positions.get(id) })).filter(parent => parent.pos);
+    if (!parents.length) continue;
+    const parentCentre = parents.reduce((sum, parent) => sum + parent.pos.x + CARD_W / 2, 0) / parents.length;
+    const parentBottom = Math.max(...parents.map(parent => parent.pos.y + CARD_H));
+    const partneredParents = parents.length === 2 && partnerKeys.has(parentIds.slice().sort().join('|'));
+    const parentStartY = partneredParents
+      ? parents[0].pos.y + PHOTO_H * 0.64
+      : parentBottom;
+    const children = [...childSet]
+      .map(id => ({ id, pos: state.positions.get(id) }))
+      .filter(child => child.pos)
+      .sort((a, b) => a.pos.x - b.pos.x);
     if (!children.length) continue;
-    const childTops = children.map(c => c.pos.y);
-    const joinY = Math.min(...childTops) - 48;
-    const childCentres = children.map(c => c.pos.x + CARD_W / 2);
-    paths.push(`<path d="M ${parentCentre} ${parentBottom} L ${parentCentre} ${joinY}"/>`);
-    if (children.length > 1) {
-      paths.push(`<path d="M ${Math.min(...childCentres)} ${joinY} L ${Math.max(...childCentres)} ${joinY}"/>`);
-    }
-    for (const child of children) {
-      const cx = child.pos.x + CARD_W / 2;
-      paths.push(`<path d="M ${cx} ${joinY} L ${cx} ${child.pos.y}"/>`);
-    }
+    const childTop = Math.min(...children.map(child => child.pos.y));
+    const joinY = Math.min(childTop - 34, parentBottom + Math.max(48, (childTop - parentBottom) * 0.52));
+    const childCentres = children.map(child => child.pos.x + CARD_W / 2);
+    const horizontal = children.length > 1
+      ? `M ${Math.min(...childCentres)} ${joinY} H ${Math.max(...childCentres)} `
+      : `M ${parentCentre} ${joinY} H ${childCentres[0]} `;
+    const drops = children.map((child, index) => `M ${childCentres[index]} ${joinY} V ${child.pos.y}`).join(' ');
+    paths.push(`<path class="family-path" d="M ${parentCentre} ${parentStartY} V ${joinY} ${horizontal}${drops}"/>`);
   }
 
   els.relationshipLayer.innerHTML = `<g class="relationship-paths">${paths.join('')}</g>`;
