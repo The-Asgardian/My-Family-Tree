@@ -43,3 +43,15 @@ test('unconnected roots default to the Hayre family surname', () => {
   const names = buildAutomaticNames([{ id: 'root', fullName: 'New Singh' }], [], 'Hayre');
   assert.equal(names.get('root').fullName, 'New Singh Hayre');
 });
+
+test('a saved surname remains authoritative when family relationships suggest another default', () => {
+  const names = buildAutomaticNames([
+    { id: 'husband', fullName: 'Dev Singh Grewal' },
+    { id: 'wife', fullName: 'Mina Kaur Dhillon' }
+  ], [
+    { type: 'partner', personAId: 'husband', personBId: 'wife' }
+  ], 'Hayre');
+
+  assert.equal(names.get('wife').fullName, 'Mina Kaur Dhillon');
+  assert.equal(names.get('wife').surnameSource, 'Saved surname');
+});

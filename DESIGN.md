@@ -321,8 +321,8 @@ All permissions are enforced with Supabase Row Level Security, not only hidden U
 
 ## 8. Privacy and security
 
-- The initial version deliberately uses anonymous access so there is no sign-in barrier.
-- Anyone with the application URL can view and edit the tree until authentication is added.
+- Viewing is public. Editing uses one-use invitation links that silently create a device-bound anonymous Auth session, so there is no sign-in barrier or password page.
+- Anyone with the application URL can view the tree; only a browser that claims a valid one-use invitation can edit it.
 - Supabase Auth controls identity.
 - RLS protects every user-owned table.
 - Profile photos use a private Supabase Storage bucket and signed URLs.
@@ -467,7 +467,7 @@ This is intentionally simple for the first implementation and can later move to 
 
 ### Runtime mode
 
-- **Backend-only mode:** Supabase-backed persistence and realtime sync. There is no mock-data fallback or sign-in flow in the initial version.
+- **Backend-only mode:** Supabase-backed persistence and realtime sync. There is no mock-data fallback or visible sign-in flow; editing requires a claimed private invitation.
 - **Single-tree mode:** one configured tree ID and a database singleton constraint; the UI has no tree chooser.
 - An empty tree renders one UI-only root node. Creating that root writes the first real person to Supabase; every later family member is connected from persisted people.
 

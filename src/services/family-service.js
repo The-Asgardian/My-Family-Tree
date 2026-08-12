@@ -81,11 +81,17 @@ export const familyService = {
     return mapPerson(data);
   },
 
-  async deletePerson(treeId, personId) {
+  async deletePerson(treeId, personId, photoPath = '') {
     if (!treeId) throw new Error('Choose a family tree before removing a person.');
     const supabase = await getSupabase();
     const { error } = await supabase.from('people').delete().eq('tree_id', treeId).eq('id', personId);
     if (error) throw error;
+    if (photoPath) {
+      const { error: photoError } = await supabase.storage.from('family-photos').remove([photoPath]);
+      // The database deletion is authoritative. A failed storage cleanup must not
+      // make the UI report that the person still exists.
+      if (photoError) console.warn('The deleted person portrait could not be removed.', photoError);
+    }
   },
 
   async createRelationship(treeId, relationship) {

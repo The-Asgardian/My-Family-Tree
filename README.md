@@ -24,8 +24,11 @@ The zero-build static app now runs exclusively against Supabase and includes:
 - one fixed family tree with reliable first-use creation
 - Supabase-backed people and relationship writes
 - automatic WebP portrait resizing/compression before private photo upload
+- server-enforced WebP-only portrait uploads with a 2 MiB bucket limit
 - private photo storage with short-lived signed URLs
 - live refresh when another editor changes a tree
+- one-use private editor links with persistent, device-bound access
+- public view-only mode with editor-only database and photo writes
 - RLS, audit logging, storage policies and Realtime publication setup
 
 ## Run locally
@@ -69,9 +72,10 @@ first persisted person. Every later family member is added as a relation to a
 persisted person. The database migration prevents a second tree from being
 created.
 
-Anonymous access keeps the first version simple: anyone who can open the app can
-view and edit the tree. Authentication can be added later without changing the
-stored family data.
+Anyone who opens the app can view the tree. Editing requires a private one-use
+invitation link; accepting it happens silently without a password or sign-in
+page and persists on that browser/device. See
+[`docs/editor-invitations.md`](./docs/editor-invitations.md).
 
 Never put a Supabase service-role key in this repository or in browser code.
 Only use a publishable key (or the legacy anon key) in `src/config.js`.

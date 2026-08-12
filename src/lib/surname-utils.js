@@ -41,6 +41,14 @@ export function buildAutomaticNames(people, relationships, defaultSurname = 'Hay
     }
 
     const nextResolving = new Set(resolving).add(personId);
+    // A saved surname is authoritative. Relationships provide defaults only, so a
+    // surname deliberately edited in the form is never replaced on the next load.
+    if (profile.lastName) {
+      const result = { surname: profile.lastName, source: 'Saved surname' };
+      surnameCache.set(personId, result);
+      return result;
+    }
+
     const partnerIds = partners.get(personId) || [];
     if (profile.gender === 'female') {
       const husbandId = partnerIds.find(id => profiles.get(id)?.gender === 'male');
@@ -57,12 +65,6 @@ export function buildAutomaticNames(people, relationships, defaultSurname = 'Hay
     if (fatherId) {
       const fatherSurname = resolveSurname(fatherId, nextResolving).surname;
       const result = { surname: fatherSurname, source: `Father: ${peopleById.get(fatherId).fullName}` };
-      surnameCache.set(personId, result);
-      return result;
-    }
-
-    if (profile.lastName) {
-      const result = { surname: profile.lastName, source: 'Existing family surname' };
       surnameCache.set(personId, result);
       return result;
     }

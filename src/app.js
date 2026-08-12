@@ -10,6 +10,13 @@ import {
 } from './lib/person-utils.js';
 import { optimisePhoto } from './lib/photo-utils.js';
 import { buildAutomaticNames } from './lib/surname-utils.js';
+import {
+  claimEditorInvitation,
+  clearInvitationFromAddress,
+  createEditorInvitation,
+  getEditorAccess,
+  invitationTokenFromUrl
+} from './services/editor-access-service.js';
 
 const CARD_W = 136;
 const CARD_H = 192;
@@ -32,16 +39,23 @@ const state = {
   addAnchorId: null,
   addRelationship: null,
   editingId: null,
+  deletingId: null,
+  lastNameEdited: false,
   drag: null,
+  touchPointers: new Map(),
+  pinch: null,
   photoFile: null,
   photoPreviewUrl: '',
   photoProcessing: null,
   showGenerationBands: true,
   automaticNames: new Map(),
+  isEditor: false,
   treeConnected: false,
   stopTreeSubscription: null,
   realtimeReloadTimer: null
 };
+
+let resizeTimer = null;
 
 const els = {
   familyName: document.querySelector('#familyName'),
@@ -63,6 +77,13 @@ const els = {
   personDialog: document.querySelector('#personDialog'),
   personDialogTitle: document.querySelector('#personDialogTitle'),
   personDialogSubtitle: document.querySelector('#personDialogSubtitle'),
+  deletePersonDialog: document.querySelector('#deletePersonDialog'),
+  deletePersonTitle: document.querySelector('#deletePersonTitle'),
+  deletePersonSubtitle: document.querySelector('#deletePersonSubtitle'),
+  deletePersonForm: document.querySelector('#deletePersonForm'),
+  deleteConfirmation: document.querySelector('#deleteConfirmationInput'),
+  confirmDeleteButton: document.querySelector('#confirmDeleteButton'),
+  deleteFormStatus: document.querySelector('#deleteFormStatus'),
   personForm: document.querySelector('#personForm'),
   personFirstName: document.querySelector('#personFirstNameInput'),
   personMiddleName: document.querySelector('#personMiddleNameInput'),
@@ -79,7 +100,17 @@ const els = {
   formStatus: document.querySelector('#formStatus'),
   surnameHint: document.querySelector('#surnameHint'),
   toastRegion: document.querySelector('#toastRegion'),
-  connectionStatus: document.querySelector('#connectionStatus')
+  connectionStatus: document.querySelector('#connectionStatus'),
+  addPersonButton: document.querySelector('#addPersonButton'),
+  inviteEditorButton: document.querySelector('#inviteEditorButton'),
+  inviteEditorDialog: document.querySelector('#inviteEditorDialog'),
+  inviteEditorForm: document.querySelector('#inviteEditorForm'),
+  inviteDuration: document.querySelector('#inviteDurationInput'),
+  createInviteButton: document.querySelector('#createInviteButton'),
+  inviteResult: document.querySelector('#inviteResult'),
+  inviteLinkOutput: document.querySelector('#inviteLinkOutput'),
+  copyInviteButton: document.querySelector('#copyInviteButton'),
+  inviteFormStatus: document.querySelector('#inviteFormStatus')
 };
 
 function initials(name = '') {
@@ -405,7 +436,7 @@ function nodeMarkup(person) {
   return `
     <div class="node-photo">${photo}</div>
     <div class="node-meta"><strong>${escapeHtml(person.fullName)}</strong><span>${escapeHtml(formattedAge(person))}</span></div>
-    <button class="node-add" type="button" aria-label="Add relative to ${escapeHtml(person.fullName)}" data-add-person="${person.id}">＋</button>
+    ${state.isEditor ? `<button class="node-add" type="button" aria-label="Add relative to ${escapeHtml(person.fullName)}" data-add-person="${person.id}">＋</button>` : ''}
   `;
 }
 
@@ -423,11 +454,11 @@ function renderRootNode() {
   els.nodeLayer.innerHTML = `
     <article class="root-node" aria-label="Add the root person">
       <span class="root-node-mark" aria-hidden="true">＋</span>
-      <strong>Add the root person</strong>
-      <span>Every family branch will connect from here.</span>
-      <button class="primary-button" type="button">Add the first person</button>
+      <strong>${state.isEditor ? 'Add the root person' : 'No family members yet'}</strong>
+      <span>${state.isEditor ? 'Every family branch will connect from here.' : 'Open an editor invitation on this device to begin the tree.'}</span>
+      ${state.isEditor ? '<button class="primary-button" type="button">Add the first person</button>' : ''}
     </article>`;
-  els.nodeLayer.querySelector('.root-node button').addEventListener('click', () => {
+  els.nodeLayer.querySelector('.root-node button')?.addEventListener('click', () => {
     if (!requireConnectedTree()) return;
     state.addAnchorId = null;
     state.addRelationship = null;
@@ -474,7 +505,7 @@ function renderTree() {
     selectButton.setAttribute('aria-label', `View ${person.fullName}`);
     selectButton.addEventListener('click', () => selectPerson(person.id));
     card.prepend(selectButton);
-    card.querySelector('.node-add').addEventListener('click', event => {
+    card.querySelector('.node-add')?.addEventListener('click', event => {
       event.stopPropagation();
       openRelationshipDialog(person.id);
     });
@@ -601,15 +632,16 @@ function renderDetails() {
     <section class="relationship-details">
       <h3>Parents</h3><div class="relation-list">${miniPeople(parents) || '<span class="empty-label">Not added</span>'}</div>
       <h3>Siblings</h3><div class="relation-list">${miniPeople(siblings) || '<span class="empty-label">None added</span>'}</div>
-      <h3>Partner</h3><div class="relation-list">${miniPeople(partners) || `<button class="add-inline" type="button" data-inline-add="partner">＋ Add partner</button>`}</div>
-      <h3>Children</h3><div class="relation-list">${miniPeople(children) || `<button class="add-inline" type="button" data-inline-add="child">＋ Add child</button>`}</div>
+      <h3>Partner</h3><div class="relation-list">${miniPeople(partners) || (state.isEditor ? `<button class="add-inline" type="button" data-inline-add="partner">＋ Add partner</button>` : '<span class="empty-label">None added</span>')}</div>
+      <h3>Children</h3><div class="relation-list">${miniPeople(children) || (state.isEditor ? `<button class="add-inline" type="button" data-inline-add="child">＋ Add child</button>` : '<span class="empty-label">None added</span>')}</div>
     </section>
-    <section class="profile-actions">
+    ${state.isEditor ? `<section class="profile-actions">
       <button class="primary-button" type="button" id="panelAddRelative">＋ Add relative</button>
       <button class="secondary-button" type="button" id="panelEditPerson">✎ Edit person</button>
-    </section>
+      <button class="danger-outline-button profile-delete-button" type="button" id="panelDeletePerson">Delete person</button>
+    </section>` : '<div class="view-only-note">View only · an invitation link is required to edit</div>'}
     <section class="facts-grid">
-      <div><span>Last name</span><strong>${escapeHtml(person.lastName || config.defaultFamilySurname)}<small class="surname-source">Automatic · ${escapeHtml(person.surnameSource || `${config.defaultFamilySurname} family root`)}</small></strong></div>
+      <div><span>Last name</span><strong>${escapeHtml(person.lastName || config.defaultFamilySurname)}<small class="surname-source">${escapeHtml(person.surnameSource || `${config.defaultFamilySurname} family root`)}</small></strong></div>
       <div><span>Date of birth</span><strong>${escapeHtml(dob)}</strong></div>
       ${person.isDeceased ? `<div><span>Date of death</span><strong>${escapeHtml(dod)}</strong></div>` : ''}
       <div><span>Birthplace</span><strong>${escapeHtml(person.birthplace || 'Not added')}</strong></div>
@@ -623,8 +655,9 @@ function renderDetails() {
     state.addRelationship = button.dataset.inlineAdd;
     openPersonDialog();
   }));
-  els.detailsContent.querySelector('#panelAddRelative').addEventListener('click', () => openRelationshipDialog(person.id));
-  els.detailsContent.querySelector('#panelEditPerson').addEventListener('click', () => openEditDialog(person.id));
+  els.detailsContent.querySelector('#panelAddRelative')?.addEventListener('click', () => openRelationshipDialog(person.id));
+  els.detailsContent.querySelector('#panelEditPerson')?.addEventListener('click', () => openEditDialog(person.id));
+  els.detailsContent.querySelector('#panelDeletePerson')?.addEventListener('click', () => openDeleteDialog(person.id));
 }
 
 function selectPerson(id, centre = false) {
@@ -633,7 +666,7 @@ function selectPerson(id, centre = false) {
   renderDetails();
   els.detailsPanel.scrollTop = 0;
   if (centre) centreOnSelected();
-  if (window.innerWidth < 700) els.mobileDetailsButton.hidden = false;
+  if (window.innerWidth < 700 || window.innerHeight < 520) els.mobileDetailsButton.hidden = false;
 }
 
 function applyTransform() {
@@ -730,11 +763,11 @@ function automaticSurnameForForm() {
   return defaultResult;
 }
 
-function updateAutomaticNameFields() {
+function updateAutomaticNameFields(forceSurname = false) {
   els.personMiddleName.value = middleNameForGender(els.personGender.value);
   const automatic = automaticSurnameForForm();
-  els.personLastName.value = automatic.surname;
-  els.surnameHint.textContent = `Automatic surname · ${automatic.source}`;
+  if (forceSurname || !state.lastNameEdited) els.personLastName.value = automatic.surname;
+  els.surnameHint.textContent = `Suggested surname · ${automatic.source}. You can change it.`;
 }
 
 function clearPhotoPreview() {
@@ -769,7 +802,7 @@ async function loadSingleTree() {
   state.selectedId = tree.people.some(person => person.id === state.selectedId) ? state.selectedId : tree.people[0]?.id || null;
   renderAll();
   requestAnimationFrame(fitTree);
-  setConnectionStatus('Synced', 'connected');
+  setSyncedStatus();
   state.stopTreeSubscription = await familyService.subscribeToTree(tree.id, () => {
     clearTimeout(state.realtimeReloadTimer);
     state.realtimeReloadTimer = setTimeout(async () => {
@@ -778,7 +811,7 @@ async function loadSingleTree() {
         state.tree = await familyService.loadTree(tree.id);
         state.selectedId = state.tree.people.some(person => person.id === selectedId) ? selectedId : state.tree.people[0]?.id || null;
         renderAll();
-        setConnectionStatus('Synced', 'connected');
+        setSyncedStatus();
         toast('Family tree updated');
       } catch (error) {
         console.error(error);
@@ -789,6 +822,7 @@ async function loadSingleTree() {
 }
 
 function openRelationshipDialog(anchorId) {
+  if (!requireEditor()) return;
   const person = personById(anchorId);
   if (!person) return;
   state.addAnchorId = anchorId;
@@ -799,6 +833,7 @@ function openRelationshipDialog(anchorId) {
 }
 
 function openPersonDialog() {
+  if (!requireEditor()) return;
   const anchor = personById(state.addAnchorId);
   state.editingId = null;
   clearPhotoPreview();
@@ -807,15 +842,17 @@ function openPersonDialog() {
   els.personDialogTitle.textContent = state.addRelationship ? `Add a ${state.addRelationship}` : 'Add person';
   els.personDialogSubtitle.textContent = anchor ? `This person will be connected to ${anchor.fullName}.` : 'Add their basic details. You can add more later.';
   els.personForm.reset();
+  state.lastNameEdited = false;
   els.personLiving.checked = true;
   els.personDeath.disabled = true;
-  updateAutomaticNameFields();
+  updateAutomaticNameFields(true);
   els.photoPreview.innerHTML = '<span>＋</span><small>Add photo</small>';
   els.formStatus.textContent = '';
   els.personDialog.showModal();
 }
 
 function openEditDialog(personId) {
+  if (!requireEditor()) return;
   const person = personById(personId);
   if (!person) return;
   els.personForm.reset();
@@ -828,6 +865,7 @@ function openEditDialog(personId) {
   els.personFirstName.value = name.firstName;
   els.personLastName.value = name.lastName;
   els.personGender.value = name.gender;
+  state.lastNameEdited = true;
   updateAutomaticNameFields();
   els.personDob.value = formatDate(person.dateOfBirth);
   els.personAge.value = person.estimatedAge ?? '';
@@ -842,6 +880,65 @@ function openEditDialog(personId) {
   els.photoPreview.innerHTML = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="Preview">` : '<span>＋</span><small>Add photo</small>';
   els.formStatus.textContent = '';
   els.personDialog.showModal();
+}
+
+function requireEditor() {
+  if (state.isEditor) return true;
+  toast('This tree is view only. Open your private invitation link to edit.');
+  return false;
+}
+
+function setSyncedStatus() {
+  setConnectionStatus(state.isEditor ? 'Synced · Editor' : 'Synced · View only', 'connected');
+}
+
+function openDeleteDialog(personId) {
+  if (!requireEditor() || !requireConnectedTree()) return;
+  const person = personById(personId);
+  if (!person) return;
+  state.deletingId = personId;
+  els.deletePersonTitle.textContent = `Delete ${person.fullName}?`;
+  els.deletePersonSubtitle.textContent = 'This permanently removes this person and their connections from the tree.';
+  els.deleteConfirmation.value = '';
+  els.confirmDeleteButton.disabled = true;
+  els.deleteFormStatus.textContent = '';
+  els.deletePersonDialog.showModal();
+  requestAnimationFrame(() => els.deleteConfirmation.focus());
+}
+
+async function deletePersonFromTree(event) {
+  event.preventDefault();
+  if (els.deleteConfirmation.value !== 'DELETE') {
+    els.deleteFormStatus.textContent = 'Type DELETE exactly to continue.';
+    return;
+  }
+  const person = personById(state.deletingId);
+  if (!person || !requireConnectedTree()) return;
+
+  const connectedId = state.tree.relationships
+    .find(rel => rel.personAId === person.id || rel.personBId === person.id);
+  const fallbackId = connectedId
+    ? (connectedId.personAId === person.id ? connectedId.personBId : connectedId.personAId)
+    : state.tree.people.find(candidate => candidate.id !== person.id)?.id || null;
+
+  els.confirmDeleteButton.disabled = true;
+  els.deleteFormStatus.textContent = 'Deleting…';
+  try {
+    await familyService.deletePerson(state.tree.id, person.id, person.photoPath);
+    state.tree.people = state.tree.people.filter(candidate => candidate.id !== person.id);
+    state.tree.relationships = state.tree.relationships.filter(rel => rel.personAId !== person.id && rel.personBId !== person.id);
+    state.selectedId = fallbackId;
+    state.deletingId = null;
+    els.deletePersonDialog.close();
+    els.detailsPanel.classList.remove('mobile-open');
+    renderAll();
+    if (state.selectedId) requestAnimationFrame(() => centreOnSelected());
+    toast(`${person.fullName} deleted`);
+  } catch (error) {
+    console.error(error);
+    els.deleteFormStatus.textContent = error?.message || 'Unable to delete this person. Please try again.';
+    els.confirmDeleteButton.disabled = els.deleteConfirmation.value !== 'DELETE';
+  }
 }
 
 async function savePersonFromForm(event) {
@@ -977,14 +1074,47 @@ function toast(message) {
 function renderAll() {
   applyAutomaticNames();
   els.familyName.textContent = state.tree?.name || 'Family Tree';
+  els.addPersonButton.hidden = !state.isEditor;
+  els.inviteEditorButton.hidden = !state.isEditor;
   renderTree();
   renderDetails();
+}
+
+async function createInvitationFromForm(event) {
+  event.preventDefault();
+  if (!requireEditor()) return;
+  els.createInviteButton.disabled = true;
+  els.inviteResult.hidden = true;
+  els.inviteFormStatus.textContent = 'Creating a secure one-use link…';
+  try {
+    const invitation = await createEditorInvitation(Number(els.inviteDuration.value));
+    els.inviteLinkOutput.value = invitation.inviteUrl;
+    els.inviteResult.hidden = false;
+    els.inviteFormStatus.textContent = `Expires ${new Date(invitation.expiresAt).toLocaleString()}. The first device to open it becomes the editor.`;
+  } catch (error) {
+    console.error(error);
+    els.inviteFormStatus.textContent = error?.message || 'Unable to create an invitation.';
+  } finally {
+    els.createInviteButton.disabled = false;
+  }
+}
+
+async function copyInvitationLink() {
+  const link = els.inviteLinkOutput.value;
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+  } catch {
+    els.inviteLinkOutput.select();
+    document.execCommand('copy');
+  }
+  els.inviteFormStatus.textContent = 'Link copied. Send it privately to one person.';
 }
 
 function bindEvents() {
   document.querySelectorAll('.view-tab').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
   document.querySelector('#addPersonButton').addEventListener('click', () => {
-    if (!requireConnectedTree()) return;
+    if (!requireEditor() || !requireConnectedTree()) return;
     if (state.selectedId) openRelationshipDialog(state.selectedId);
     else {
       state.addAnchorId = null;
@@ -1006,6 +1136,15 @@ function bindEvents() {
     renderTree();
     toast(`Generation colours ${state.showGenerationBands ? 'shown' : 'hidden'}`);
   });
+  els.inviteEditorButton.addEventListener('click', () => {
+    if (!requireEditor()) return;
+    els.inviteResult.hidden = true;
+    els.inviteLinkOutput.value = '';
+    els.inviteFormStatus.textContent = '';
+    els.inviteEditorDialog.showModal();
+  });
+  els.inviteEditorForm.addEventListener('submit', createInvitationFromForm);
+  els.copyInviteButton.addEventListener('click', copyInvitationLink);
   document.querySelector('#centreButton').addEventListener('click', centreOnSelected);
   els.search.addEventListener('input', () => handleSearch(els.search.value));
   els.search.addEventListener('keydown', event => { if (event.key === 'Escape') { els.search.value = ''; els.searchResults.hidden = true; } });
@@ -1021,7 +1160,23 @@ function bindEvents() {
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => document.querySelector(`#${button.dataset.closeDialog}`).close()));
   els.personDialog.addEventListener('close', clearPhotoPreview);
   els.personForm.addEventListener('submit', savePersonFromForm);
-  els.personGender.addEventListener('change', updateAutomaticNameFields);
+  els.personGender.addEventListener('change', () => updateAutomaticNameFields());
+  els.personLastName.addEventListener('input', () => {
+    state.lastNameEdited = true;
+    const automatic = automaticSurnameForForm();
+    els.surnameHint.textContent = `Suggested surname · ${automatic.surname} from ${automatic.source}. Your entry will be saved.`;
+  });
+  els.deletePersonForm.addEventListener('submit', deletePersonFromTree);
+  els.deleteConfirmation.addEventListener('input', () => {
+    const confirmed = els.deleteConfirmation.value === 'DELETE';
+    els.confirmDeleteButton.disabled = !confirmed;
+    els.deleteFormStatus.textContent = confirmed ? 'Ready to delete.' : '';
+  });
+  els.deletePersonDialog.addEventListener('close', () => {
+    state.deletingId = null;
+    els.deleteConfirmation.value = '';
+    els.deleteFormStatus.textContent = '';
+  });
   els.personLiving.addEventListener('change', () => {
     els.personDeath.disabled = els.personLiving.checked;
     if (els.personLiving.checked) els.personDeath.value = '';
@@ -1062,23 +1217,70 @@ function bindEvents() {
   }, { passive: false });
 
   els.viewport.addEventListener('pointerdown', event => {
-    if (state.view === 'list' || event.button !== 0 || event.target.closest('.person-node')) return;
+    if (state.view === 'list' || event.button !== 0) return;
+    if (event.pointerType === 'touch') {
+      state.touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      els.viewport.setPointerCapture(event.pointerId);
+      if (state.touchPointers.size === 2) {
+        const [first, second] = [...state.touchPointers.values()];
+        const rect = els.viewport.getBoundingClientRect();
+        const midX = (first.x + second.x) / 2 - rect.left;
+        const midY = (first.y + second.y) / 2 - rect.top;
+        state.pinch = {
+          distance: Math.hypot(second.x - first.x, second.y - first.y),
+          zoom: state.zoom,
+          stageX: (midX - state.panX) / state.zoom,
+          stageY: (midY - state.panY) / state.zoom
+        };
+        state.drag = null;
+      }
+    }
+    if (event.target.closest('.person-node')) return;
     els.viewport.setPointerCapture(event.pointerId);
     state.drag = { x: event.clientX, y: event.clientY, panX: state.panX, panY: state.panY };
     els.viewport.classList.add('dragging');
   });
   els.viewport.addEventListener('pointermove', event => {
+    if (event.pointerType === 'touch' && state.touchPointers.has(event.pointerId)) {
+      state.touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (state.pinch && state.touchPointers.size >= 2) {
+        const [first, second] = [...state.touchPointers.values()];
+        const rect = els.viewport.getBoundingClientRect();
+        const midX = (first.x + second.x) / 2 - rect.left;
+        const midY = (first.y + second.y) / 2 - rect.top;
+        const distance = Math.hypot(second.x - first.x, second.y - first.y);
+        const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, state.pinch.zoom * distance / Math.max(1, state.pinch.distance)));
+        state.zoom = zoom;
+        state.panX = midX - state.pinch.stageX * zoom;
+        state.panY = midY - state.pinch.stageY * zoom;
+        applyTransform();
+        return;
+      }
+    }
     if (!state.drag) return;
     state.panX = state.drag.panX + event.clientX - state.drag.x;
     state.panY = state.drag.panY + event.clientY - state.drag.y;
     applyTransform();
   });
-  const stopDrag = () => { state.drag = null; els.viewport.classList.remove('dragging'); };
+  const stopDrag = event => {
+    state.touchPointers.delete(event.pointerId);
+    if (state.touchPointers.size < 2) state.pinch = null;
+    state.drag = null;
+    els.viewport.classList.remove('dragging');
+  };
   els.viewport.addEventListener('pointerup', stopDrag);
   els.viewport.addEventListener('pointercancel', stopDrag);
 
   window.addEventListener('resize', () => {
-    if (window.innerWidth >= 700) els.detailsPanel.classList.remove('mobile-open');
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (window.innerWidth >= 700 && window.innerHeight >= 520) els.detailsPanel.classList.remove('mobile-open');
+      els.mobileDetailsButton.hidden = !state.selectedId || (window.innerWidth >= 700 && window.innerHeight >= 520);
+      if (!state.treeConnected || state.view === 'list') return;
+      renderTree();
+      if (state.selectedId) centreOnSelected();
+      else fitTree();
+    }, 140);
   });
 }
 
@@ -1086,6 +1288,23 @@ async function init() {
   bindEvents();
   clearTreeView();
   try {
+    const invitationToken = invitationTokenFromUrl();
+    if (invitationToken) {
+      setConnectionStatus('Unlocking editor…', 'waiting');
+      try {
+        const access = await claimEditorInvitation(invitationToken);
+        state.isEditor = access.isEditor;
+        toast(access.alreadyEditor ? 'Editor access restored' : 'Private editor invitation accepted');
+      } catch (error) {
+        console.error(error);
+        toast('This invitation is invalid, expired, or has already been used.');
+      } finally {
+        clearInvitationFromAddress();
+      }
+    } else {
+      const access = await getEditorAccess();
+      state.isEditor = access.isEditor;
+    }
     await loadSingleTree();
   } catch (error) {
     console.error(error);
