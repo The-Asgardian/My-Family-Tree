@@ -15,7 +15,9 @@ The zero-build static app now runs exclusively against Supabase and includes:
 - family / ancestors / descendants / list views
 - portrait search and jump-to-person focus
 - automatic tidy-tree layout and oldest-to-youngest sibling ordering
-- structured first/last names with automatic Singh/Kaur middle names
+- toggleable colour bands for each vertical generation
+- structured first names with automatic Singh/Kaur middle names
+- relationship-derived surnames: father for children/men, husband for married women, with Hayre as the original family root
 - `dd/mm/yyyy` date entry and display
 - persistent add-relative flow
 - a UI-only root node for an empty tree

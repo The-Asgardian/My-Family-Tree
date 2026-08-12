@@ -71,12 +71,24 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .view-tabs { position: absolute; top: 18px; left: 18px; z-index: 8; display: flex; align-items: center; gap: 9px; }
 .view-tab { height: 39px; display: inline-flex; align-items: center; gap: 8px; padding: 0 13px; border: 1px solid transparent; background: transparent; border-radius: 9px; color: #3e4250; cursor: pointer; font-size: 13px; }
 .view-tab.active { color: var(--accent); background: var(--surface); border-color: var(--border); box-shadow: 0 2px 8px rgba(31,36,55,.05); }
-.auto-layout-button { position: absolute; top: 18px; right: 18px; z-index: 9; min-height: 39px; background: rgba(255,255,255,.96); box-shadow: 0 2px 8px rgba(31,36,55,.05); }
+.tree-action-buttons { position: absolute; top: 18px; right: 18px; z-index: 9; display: flex; gap: 8px; }
+.tree-action-buttons .secondary-button { min-height: 39px; background: rgba(255,255,255,.96); box-shadow: 0 2px 8px rgba(31,36,55,.05); }
+.generation-toggle.active { border-color: #bfc4ff; color: var(--accent); background: #f5f5ff; }
 .tree-viewport { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; }
 .tree-viewport.dragging { cursor: grabbing; }
 .tree-stage { position: absolute; top: 0; left: 0; will-change: transform; }
-.node-layer, .relationship-layer { position: absolute; inset: 0; }
-.relationship-layer { overflow: visible; pointer-events: none; }
+.generation-layer, .node-layer, .relationship-layer { position: absolute; inset: 0; }
+.generation-layer { z-index: 0; overflow: visible; pointer-events: none; }
+.relationship-layer { z-index: 1; overflow: visible; pointer-events: none; }
+.node-layer { z-index: 2; }
+.generation-band { position: absolute; left: -3000px; width: calc(100% + 6000px); border-top: 1px solid rgba(94,102,121,.09); border-bottom: 1px solid rgba(255,255,255,.58); }
+.generation-band span { position: absolute; left: 3088px; top: 23px; color: rgba(61,68,84,.38); font-size: 17px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.generation-tone-0 { background: rgba(115,154,220,.09); }
+.generation-tone-1 { background: rgba(235,181,95,.09); }
+.generation-tone-2 { background: rgba(95,184,142,.09); }
+.generation-tone-3 { background: rgba(156,124,211,.085); }
+.generation-tone-4 { background: rgba(221,128,151,.08); }
+.generation-tone-5 { background: rgba(91,180,193,.08); }
 .relationship-paths path { fill: none; stroke: #727b8e; stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .relationship-paths .partner-path { stroke: #626c80; stroke-width: 3.2; }
 .relationship-paths .family-path { stroke: #727b8e; }
@@ -132,6 +144,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .facts-grid > div { display: grid; grid-template-columns: 115px 1fr; gap: 10px; align-items: start; padding: 9px 0; font-size: 11px; }
 .facts-grid span { color: var(--muted); }
 .facts-grid strong { font-weight: 520; line-height: 1.45; }
+.surname-source { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; font-weight: 450; }
 .about-text { color: #9095a2; }
 .panel-empty { padding: 90px 28px; text-align: center; color: var(--muted); }
 .panel-empty h2 { color: var(--text); font-size: 18px; }
@@ -197,6 +210,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   #addPersonButton span { font-size: 18px; }
   .workspace { grid-template-columns: minmax(0, 1fr) 310px; }
   .view-tab { padding: 0 10px; }.view-tab span { display:none; }
+  .tree-action-buttons { top: 62px; right: 10px; }
 }
 
 @media (max-width: 699px) {
@@ -210,7 +224,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .profile-hero { grid-template-columns: 128px 1fr; }.detail-photo { width:128px; }.relationship-details { margin: 8px 0 0; padding: 0 18px; min-height: 0; }
   .profile-actions { padding-top: 18px; }
   .view-tabs { top: 10px; left: 10px; gap: 4px; }.view-tab { height: 36px; }
-  .auto-layout-button { top: 55px; right: 10px; min-height: 36px; padding: 0 11px; }
+  .tree-action-buttons { top: 55px; right: 10px; gap: 5px; }
+  .tree-action-buttons .secondary-button { min-height: 36px; padding: 0 10px; font-size: 11px; }
   .zoom-toolbar { left: 10px; width: 44px; }.history-controls { left: 10px; bottom: 12px; }
   .mobile-details-button:not([hidden]) { display: block; }
   .relationship-grid { gap: 8px; }.relationship-grid button { min-height: 102px; }

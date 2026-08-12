@@ -25,6 +25,9 @@ test('legacy full names remain editable without a data rewrite', () => {
   assert.deepEqual(structuredNameFor({ fullName: 'Swarn Kaur Hayre' }), {
     firstName: 'Swarn', lastName: 'Hayre', gender: 'female', middleName: 'Kaur'
   });
+  assert.deepEqual(structuredNameFor({ fullName: 'Gurdave Kaur (Debo)' }), {
+    firstName: 'Gurdave (Debo)', lastName: '', gender: 'female', middleName: 'Kaur'
+  });
 });
 
 test('siblings sort oldest to youngest with deterministic fallbacks', () => {

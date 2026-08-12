@@ -5,9 +5,13 @@ function mapPerson(row, photoUrl = '') {
   return {
     id: row.id,
     fullName: row.full_name,
+    sourceFullName: row.full_name,
     firstName: row.first_name,
+    storedFirstName: row.first_name,
     lastName: row.last_name,
+    storedLastName: row.last_name,
     gender: row.gender,
+    storedGender: row.gender,
     preferredName: row.preferred_name,
     dateOfBirth: row.date_of_birth,
     estimatedAge: row.estimated_age,

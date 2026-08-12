@@ -9,6 +9,7 @@ import {
   structuredNameFor
 } from './lib/person-utils.js';
 import { optimisePhoto } from './lib/photo-utils.js';
+import { buildAutomaticNames } from './lib/surname-utils.js';
 
 const CARD_W = 136;
 const CARD_H = 192;
@@ -35,6 +36,8 @@ const state = {
   photoFile: null,
   photoPreviewUrl: '',
   photoProcessing: null,
+  showGenerationBands: true,
+  automaticNames: new Map(),
   treeConnected: false,
   stopTreeSubscription: null,
   realtimeReloadTimer: null
@@ -44,6 +47,7 @@ const els = {
   familyName: document.querySelector('#familyName'),
   viewport: document.querySelector('#treeViewport'),
   stage: document.querySelector('#treeStage'),
+  generationLayer: document.querySelector('#generationLayer'),
   nodeLayer: document.querySelector('#nodeLayer'),
   relationshipLayer: document.querySelector('#relationshipLayer'),
   detailsPanel: document.querySelector('#detailsPanel'),
@@ -73,6 +77,7 @@ const els = {
   personPhoto: document.querySelector('#personPhotoInput'),
   photoPreview: document.querySelector('#photoPreview'),
   formStatus: document.querySelector('#formStatus'),
+  surnameHint: document.querySelector('#surnameHint'),
   toastRegion: document.querySelector('#toastRegion'),
   connectionStatus: document.querySelector('#connectionStatus')
 };
@@ -102,6 +107,19 @@ function relationshipPeople(personId, type, direction = 'either') {
 function getParents(id) { return relationshipPeople(id, 'parent_child', 'parents'); }
 function getChildren(id) { return relationshipPeople(id, 'parent_child', 'children'); }
 function getPartners(id) { return relationshipPeople(id, 'partner', 'either'); }
+
+function applyAutomaticNames() {
+  if (!state.tree) return;
+  state.automaticNames = buildAutomaticNames(
+    state.tree.people,
+    state.tree.relationships,
+    config.defaultFamilySurname
+  );
+  state.tree.people.forEach(person => {
+    const automatic = state.automaticNames.get(person.id);
+    if (automatic) Object.assign(person, automatic);
+  });
+}
 
 function getSiblings(id) {
   const parentIds = getParents(id).map(p => p.id);
@@ -361,6 +379,23 @@ function layoutTree() {
   els.relationshipLayer.setAttribute('viewBox', `0 0 ${stageWidth} ${stageHeight}`);
   els.relationshipLayer.setAttribute('width', stageWidth);
   els.relationshipLayer.setAttribute('height', stageHeight);
+  renderGenerationBands(rows, topPadding, stageHeight);
+}
+
+function renderGenerationBands(rows, topPadding, stageHeight) {
+  if (!state.showGenerationBands) {
+    els.generationLayer.innerHTML = '';
+    return;
+  }
+  els.generationLayer.innerHTML = rows.map((row, rowIndex) => {
+    const top = rowIndex === 0 ? 0 : topPadding + rowIndex * (CARD_H + ROW_GAP) - ROW_GAP / 2;
+    const nextTop = rowIndex === rows.length - 1
+      ? stageHeight
+      : topPadding + (rowIndex + 1) * (CARD_H + ROW_GAP) - ROW_GAP / 2;
+    return `<div class="generation-band generation-tone-${row.generation % 6}" style="top:${top}px;height:${nextTop - top}px">
+      <span>Generation ${row.generation + 1}</span>
+    </div>`;
+  }).join('');
 }
 
 function nodeMarkup(person) {
@@ -384,6 +419,7 @@ function renderRootNode() {
   els.relationshipLayer.setAttribute('width', stageWidth);
   els.relationshipLayer.setAttribute('height', stageHeight);
   els.relationshipLayer.innerHTML = '';
+  els.generationLayer.innerHTML = '';
   els.nodeLayer.innerHTML = `
     <article class="root-node" aria-label="Add the root person">
       <span class="root-node-mark" aria-hidden="true">＋</span>
@@ -406,6 +442,7 @@ function renderTree() {
   els.emptyState.hidden = true;
   els.nodeLayer.innerHTML = '';
   els.relationshipLayer.innerHTML = '';
+  els.generationLayer.innerHTML = '';
 
   if (state.tree.people.length === 0) {
     renderRootNode();
@@ -572,6 +609,7 @@ function renderDetails() {
       <button class="secondary-button" type="button" id="panelEditPerson">✎ Edit person</button>
     </section>
     <section class="facts-grid">
+      <div><span>Last name</span><strong>${escapeHtml(person.lastName || config.defaultFamilySurname)}<small class="surname-source">Automatic · ${escapeHtml(person.surnameSource || `${config.defaultFamilySurname} family root`)}</small></strong></div>
       <div><span>Date of birth</span><strong>${escapeHtml(dob)}</strong></div>
       ${person.isDeceased ? `<div><span>Date of death</span><strong>${escapeHtml(dod)}</strong></div>` : ''}
       <div><span>Birthplace</span><strong>${escapeHtml(person.birthplace || 'Not added')}</strong></div>
@@ -656,8 +694,47 @@ function setConnectionStatus(label, status = '') {
   els.connectionStatus.className = `connection-status${status ? ` ${status}` : ''}`;
 }
 
-function updateAutomaticMiddleName() {
+function automaticSurnameForForm() {
+  const defaultResult = { surname: config.defaultFamilySurname, source: `${config.defaultFamilySurname} family root` };
+  const gender = els.personGender.value;
+
+  if (state.editingId) {
+    const person = personById(state.editingId);
+    if (!person) return defaultResult;
+    if (gender === 'female') {
+      const husband = getPartners(person.id).find(partner => partner.gender === 'male');
+      if (husband) return { surname: husband.lastName || config.defaultFamilySurname, source: `Husband: ${husband.fullName}` };
+    }
+    const father = getParents(person.id).find(parent => parent.gender === 'male');
+    if (father) return { surname: father.lastName || config.defaultFamilySurname, source: `Father: ${father.fullName}` };
+    return { surname: person.lastName || config.defaultFamilySurname, source: person.surnameSource || 'Existing family surname' };
+  }
+
+  const anchor = personById(state.addAnchorId);
+  if (!anchor) return defaultResult;
+  if (state.addRelationship === 'child') {
+    const father = anchor.gender === 'male' ? anchor : getPartners(anchor.id).find(partner => partner.gender === 'male');
+    const source = father || anchor;
+    return { surname: source.lastName || config.defaultFamilySurname, source: `${father ? 'Father' : 'Connected parent'}: ${source.fullName}` };
+  }
+  if (state.addRelationship === 'sibling') {
+    return { surname: anchor.lastName || config.defaultFamilySurname, source: `Shared family with ${anchor.fullName}` };
+  }
+  if (state.addRelationship === 'partner' && gender === 'female' && anchor.gender === 'male') {
+    return { surname: anchor.lastName || config.defaultFamilySurname, source: `Husband: ${anchor.fullName}` };
+  }
+  if (state.addRelationship === 'parent' && gender === 'female') {
+    const husband = getParents(anchor.id).find(parent => parent.gender === 'male');
+    if (husband) return { surname: husband.lastName || config.defaultFamilySurname, source: `Husband: ${husband.fullName}` };
+  }
+  return defaultResult;
+}
+
+function updateAutomaticNameFields() {
   els.personMiddleName.value = middleNameForGender(els.personGender.value);
+  const automatic = automaticSurnameForForm();
+  els.personLastName.value = automatic.surname;
+  els.surnameHint.textContent = `Automatic surname · ${automatic.source}`;
 }
 
 function clearPhotoPreview() {
@@ -732,7 +809,7 @@ function openPersonDialog() {
   els.personForm.reset();
   els.personLiving.checked = true;
   els.personDeath.disabled = true;
-  updateAutomaticMiddleName();
+  updateAutomaticNameFields();
   els.photoPreview.innerHTML = '<span>＋</span><small>Add photo</small>';
   els.formStatus.textContent = '';
   els.personDialog.showModal();
@@ -751,7 +828,7 @@ function openEditDialog(personId) {
   els.personFirstName.value = name.firstName;
   els.personLastName.value = name.lastName;
   els.personGender.value = name.gender;
-  updateAutomaticMiddleName();
+  updateAutomaticNameFields();
   els.personDob.value = formatDate(person.dateOfBirth);
   els.personAge.value = person.estimatedAge ?? '';
   els.personLiving.checked = !person.isDeceased;
@@ -898,6 +975,7 @@ function toast(message) {
 }
 
 function renderAll() {
+  applyAutomaticNames();
   els.familyName.textContent = state.tree?.name || 'Family Tree';
   renderTree();
   renderDetails();
@@ -921,6 +999,13 @@ function bindEvents() {
   document.querySelector('#zoomOutButton').addEventListener('click', () => setZoom(state.zoom - 0.12));
   document.querySelector('#fitButton').addEventListener('click', fitTree);
   document.querySelector('#autoLayoutButton').addEventListener('click', autoArrangeTree);
+  document.querySelector('#generationBandsButton').addEventListener('click', event => {
+    state.showGenerationBands = !state.showGenerationBands;
+    event.currentTarget.setAttribute('aria-pressed', String(state.showGenerationBands));
+    event.currentTarget.classList.toggle('active', state.showGenerationBands);
+    renderTree();
+    toast(`Generation colours ${state.showGenerationBands ? 'shown' : 'hidden'}`);
+  });
   document.querySelector('#centreButton').addEventListener('click', centreOnSelected);
   els.search.addEventListener('input', () => handleSearch(els.search.value));
   els.search.addEventListener('keydown', event => { if (event.key === 'Escape') { els.search.value = ''; els.searchResults.hidden = true; } });
@@ -936,7 +1021,7 @@ function bindEvents() {
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => document.querySelector(`#${button.dataset.closeDialog}`).close()));
   els.personDialog.addEventListener('close', clearPhotoPreview);
   els.personForm.addEventListener('submit', savePersonFromForm);
-  els.personGender.addEventListener('change', updateAutomaticMiddleName);
+  els.personGender.addEventListener('change', updateAutomaticNameFields);
   els.personLiving.addEventListener('change', () => {
     els.personDeath.disabled = els.personLiving.checked;
     if (els.personLiving.checked) els.personDeath.value = '';

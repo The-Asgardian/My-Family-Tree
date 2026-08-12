@@ -42,27 +42,25 @@ export function composeFullName(firstName, gender, lastName = '') {
 }
 
 export function structuredNameFor(person = {}) {
-  if (person.firstName || person.lastName || person.gender) {
-    return {
-      firstName: person.firstName || '',
-      lastName: person.lastName || '',
-      gender: person.gender || '',
-      middleName: middleNameForGender(person.gender)
-    };
-  }
-
   const parts = String(person.fullName || '').trim().split(/\s+/).filter(Boolean);
   const markerIndex = parts.findIndex(part => ['singh', 'kaur'].includes(part.toLocaleLowerCase()));
+  let legacy = { firstName: parts.join(' '), lastName: '', gender: '' };
   if (markerIndex >= 0) {
-    const gender = parts[markerIndex].toLocaleLowerCase() === 'singh' ? 'male' : 'female';
-    return {
-      firstName: parts.slice(0, markerIndex).join(' ') || parts[markerIndex],
-      lastName: parts.slice(markerIndex + 1).join(' '),
-      gender,
-      middleName: middleNameForGender(gender)
+    const tail = parts.slice(markerIndex + 1);
+    const nickname = tail.length === 1 && /^\(.+\)$/.test(tail[0]) ? tail[0] : '';
+    legacy = {
+      firstName: [parts.slice(0, markerIndex).join(' ') || parts[markerIndex], nickname].filter(Boolean).join(' '),
+      lastName: nickname ? '' : tail.join(' '),
+      gender: parts[markerIndex].toLocaleLowerCase() === 'singh' ? 'male' : 'female'
     };
   }
-  return { firstName: parts.join(' '), lastName: '', gender: '', middleName: '' };
+  const gender = person.gender || legacy.gender;
+  return {
+    firstName: person.firstName || legacy.firstName,
+    lastName: person.lastName || legacy.lastName,
+    gender,
+    middleName: middleNameForGender(gender)
+  };
 }
 
 export function comparePeopleByAge(a, b, fallbackOrder = new Map()) {
