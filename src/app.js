@@ -25,10 +25,9 @@ const state = {
   drag: null,
   photoDataUrl: '',
   photoFile: null,
-  session: null,
+  treeConnected: false,
   stopTreeSubscription: null,
-  realtimeReloadTimer: null,
-  authLoadId: 0
+  realtimeReloadTimer: null
 };
 
 const els = {
@@ -62,18 +61,7 @@ const els = {
   photoPreview: document.querySelector('#photoPreview'),
   formStatus: document.querySelector('#formStatus'),
   toastRegion: document.querySelector('#toastRegion'),
-  connectionStatus: document.querySelector('#connectionStatus'),
-  authDialog: document.querySelector('#authDialog'),
-  authForm: document.querySelector('#authForm'),
-  authEmail: document.querySelector('#authEmailInput'),
-  authStatus: document.querySelector('#authStatus'),
-  treeDialog: document.querySelector('#treeDialog'),
-  treeList: document.querySelector('#treeList'),
-  createTreeForm: document.querySelector('#createTreeForm'),
-  treeName: document.querySelector('#treeNameInput'),
-  treeStatus: document.querySelector('#treeStatus'),
-  accountDialog: document.querySelector('#accountDialog'),
-  accountEmail: document.querySelector('#accountEmail')
+  connectionStatus: document.querySelector('#connectionStatus')
 };
 
 function initials(name = '') {
@@ -271,9 +259,10 @@ function renderRootNode() {
       <span class="root-node-mark" aria-hidden="true">＋</span>
       <strong>Add the root person</strong>
       <span>Every family branch will connect from here.</span>
-      <button class="primary-button" type="button">Start your tree</button>
+      <button class="primary-button" type="button">Add the first person</button>
     </article>`;
   els.nodeLayer.querySelector('.root-node button').addEventListener('click', () => {
+    if (!requireConnectedTree()) return;
     state.addAnchorId = null;
     state.addRelationship = null;
     openPersonDialog();
@@ -409,7 +398,10 @@ function miniPeople(people) {
 function renderDetails() {
   const person = personById(state.selectedId);
   if (!person) {
-    els.detailsContent.innerHTML = `<div class="panel-empty"><h2>Select someone</h2><p>Choose a person in the family tree to view their details.</p></div>`;
+    const emptyCopy = state.tree?.people.length === 0
+      ? '<h2>Add the first person</h2><p>This person becomes the root from which every relative is connected.</p>'
+      : '<h2>Select someone</h2><p>Choose a person in the family tree to view their details.</p>';
+    els.detailsContent.innerHTML = `<div class="panel-empty">${emptyCopy}</div>`;
     return;
   }
   const parents = getParents(person.id);
@@ -513,69 +505,33 @@ function setConnectionStatus(label, status = '') {
   els.connectionStatus.className = `connection-status${status ? ` ${status}` : ''}`;
 }
 
-function showDialog(dialog) {
-  if (dialog && !dialog.open) dialog.showModal();
-}
-
-function closeDialog(dialog) {
-  if (dialog?.open) dialog.close();
+function requireConnectedTree() {
+  if (state.treeConnected) return true;
+  toast('Your family tree is still connecting. Please try again in a moment.');
+  return false;
 }
 
 function clearTreeView() {
-  state.tree = null;
+  state.tree = {
+    id: config.defaultTreeId,
+    name: config.defaultTreeName,
+    people: [],
+    relationships: []
+  };
+  state.treeConnected = false;
   state.selectedId = null;
-  els.familyName.textContent = 'Family Tree';
-  els.nodeLayer.innerHTML = '';
-  els.relationshipLayer.innerHTML = '';
-  els.detailsContent.innerHTML = '<div class="panel-empty"><h2>Sign in to continue</h2><p>Your private family tree will appear here.</p></div>';
-  els.emptyState.hidden = true;
-}
-
-function preferredTreeId() {
-  const urlTreeId = new URL(window.location.href).searchParams.get('tree');
-  return urlTreeId || config.defaultTreeId || localStorage.getItem('family-tree:selected-tree') || '';
-}
-
-function rememberTree(treeId) {
-  localStorage.setItem('family-tree:selected-tree', treeId);
-  const url = new URL(window.location.href);
-  url.searchParams.set('tree', treeId);
-  window.history.replaceState({}, '', url);
-}
-
-function renderTreeChoices(trees) {
-  els.treeList.innerHTML = trees.map(tree => `
-    <button type="button" data-tree-id="${escapeHtml(tree.id)}" class="${tree.id === state.tree?.id ? 'active' : ''}">
-      <strong>${escapeHtml(tree.name)}</strong><span>Open ›</span>
-    </button>
-  `).join('');
-  els.treeList.querySelectorAll('[data-tree-id]').forEach(button => button.addEventListener('click', async () => {
-    els.treeStatus.textContent = 'Opening…';
-    try {
-      await loadConnectedTree(button.dataset.treeId);
-    } catch (error) {
-      els.treeStatus.textContent = error?.message || 'Unable to open this tree.';
-    }
-  }));
-}
-
-async function showTreeChooser() {
-  const trees = await familyService.listTrees();
-  renderTreeChoices(trees);
-  els.treeStatus.textContent = '';
-  showDialog(els.treeDialog);
-  return trees;
-}
-
-async function loadConnectedTree(treeId) {
-  const tree = await familyService.loadTree(treeId);
-  if (state.stopTreeSubscription) await state.stopTreeSubscription();
-  state.tree = tree;
-  state.selectedId = tree.people.some(person => person.id === state.selectedId) ? state.selectedId : tree.people[0]?.id || null;
-  rememberTree(tree.id);
   renderAll();
   requestAnimationFrame(fitTree);
-  closeDialog(els.treeDialog);
+}
+
+async function loadSingleTree() {
+  const tree = await familyService.loadTree(config.defaultTreeId);
+  if (state.stopTreeSubscription) await state.stopTreeSubscription();
+  state.tree = tree;
+  state.treeConnected = true;
+  state.selectedId = tree.people.some(person => person.id === state.selectedId) ? state.selectedId : tree.people[0]?.id || null;
+  renderAll();
+  requestAnimationFrame(fitTree);
   setConnectionStatus('Synced', 'connected');
   state.stopTreeSubscription = await familyService.subscribeToTree(tree.id, () => {
     clearTimeout(state.realtimeReloadTimer);
@@ -593,41 +549,6 @@ async function loadConnectedTree(treeId) {
       }
     }, 300);
   });
-}
-
-async function handleAuthSession(session, event = '') {
-  const loadId = ++state.authLoadId;
-  const sameUser = state.session?.user?.id === session?.user?.id;
-  state.session = session;
-  if (!session) {
-    if (state.stopTreeSubscription) await state.stopTreeSubscription();
-    state.stopTreeSubscription = null;
-    clearTreeView();
-    closeDialog(els.accountDialog);
-    closeDialog(els.treeDialog);
-    setConnectionStatus('Signed out', 'waiting');
-    showDialog(els.authDialog);
-    return;
-  }
-
-  els.accountEmail.textContent = session.user.email || 'Signed-in family member';
-  document.querySelector('#accountButton span').textContent = initials(session.user.email?.split('@')[0] || 'Member');
-  closeDialog(els.authDialog);
-  if (sameUser && state.tree) return;
-
-  setConnectionStatus('Connecting…', 'waiting');
-  const trees = await familyService.listTrees();
-  if (loadId !== state.authLoadId) return;
-  const chosenId = preferredTreeId();
-  const chosen = trees.find(tree => tree.id === chosenId);
-  if (chosen || trees.length === 1) {
-    await loadConnectedTree((chosen || trees[0]).id);
-  } else {
-    clearTreeView();
-    renderTreeChoices(trees);
-    showDialog(els.treeDialog);
-    setConnectionStatus(trees.length ? 'Choose a tree' : 'Create a tree', 'waiting');
-  }
 }
 
 function openRelationshipDialog(anchorId) {
@@ -805,10 +726,7 @@ function renderAll() {
 function bindEvents() {
   document.querySelectorAll('.view-tab').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
   document.querySelector('#addPersonButton').addEventListener('click', () => {
-    if (!state.tree) {
-      showTreeChooser().catch(error => toast(error?.message || 'Unable to load family trees.'));
-      return;
-    }
+    if (!requireConnectedTree()) return;
     if (state.selectedId) openRelationshipDialog(state.selectedId);
     else {
       state.addAnchorId = null;
@@ -817,11 +735,7 @@ function bindEvents() {
     }
   });
   document.querySelector('#familyMenuButton').addEventListener('click', () => {
-    if (state.session) showTreeChooser().catch(error => toast(error?.message || 'Unable to load family trees.'));
-  });
-  document.querySelector('#accountButton').addEventListener('click', () => {
-    if (state.session) showDialog(els.accountDialog);
-    else showDialog(els.authDialog);
+    if (state.view !== 'list') fitTree();
   });
   document.querySelector('#zoomInButton').addEventListener('click', () => setZoom(state.zoom + 0.12));
   document.querySelector('#zoomOutButton').addEventListener('click', () => setZoom(state.zoom - 0.12));
@@ -839,40 +753,6 @@ function bindEvents() {
     openPersonDialog();
   }));
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => document.querySelector(`#${button.dataset.closeDialog}`).close()));
-  els.authDialog.addEventListener('cancel', event => {
-    if (!state.session) event.preventDefault();
-  });
-  els.authForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    els.authStatus.textContent = 'Sending your secure link…';
-    try {
-      await familyService.signInWithEmail(els.authEmail.value.trim());
-      els.authStatus.textContent = 'Check your inbox and open the sign-in link on this device.';
-    } catch (error) {
-      els.authStatus.textContent = error?.message || 'Unable to send the sign-in link.';
-    }
-  });
-  els.createTreeForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    const name = els.treeName.value.trim();
-    if (!name) return;
-    els.treeStatus.textContent = 'Creating your private tree…';
-    try {
-      const tree = await familyService.createTree(name);
-      els.createTreeForm.reset();
-      await loadConnectedTree(tree.id);
-      toast('Family tree created');
-    } catch (error) {
-      els.treeStatus.textContent = error?.message || 'Unable to create the tree.';
-    }
-  });
-  document.querySelector('#signOutButton').addEventListener('click', async () => {
-    try {
-      await familyService.signOut();
-    } catch (error) {
-      toast(error?.message || 'Unable to sign out.');
-    }
-  });
   els.personForm.addEventListener('submit', savePersonFromForm);
   els.personPhoto.addEventListener('change', event => {
     const file = event.target.files?.[0];
@@ -921,16 +801,9 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  clearTreeView();
   try {
-    const session = await familyService.getSession();
-    await handleAuthSession(session, 'INITIAL_SESSION');
-    await familyService.onAuthStateChange((event, nextSession) => {
-      setTimeout(() => handleAuthSession(nextSession, event).catch(error => {
-        console.error(error);
-        setConnectionStatus('Connection error', 'waiting');
-        toast(error?.message || 'Unable to update your session.');
-      }), 0);
-    });
+    await loadSingleTree();
   } catch (error) {
     console.error(error);
     clearTreeView();

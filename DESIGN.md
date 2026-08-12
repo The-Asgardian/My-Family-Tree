@@ -6,7 +6,7 @@
 
 ## 1. Product goal
 
-Create a private, modern, photo-first family tree that is simple enough for non-technical relatives to use. The tree itself is the product: users should be able to understand the family structure immediately, select a person, view details, and add or edit relatives with minimal friction.
+Create a modern, photo-first family tree that is simple enough for non-technical relatives to use. The tree itself is the product: users should be able to understand the family structure immediately, select a person, view details, and add or edit relatives with minimal friction.
 
 The app deliberately avoids the research-heavy visual density of traditional genealogy software. It borrows proven tree-navigation patterns from premium genealogy products but presents them with a cleaner, contemporary UI.
 
@@ -226,7 +226,11 @@ App-user profile linked 1:1 to Supabase Auth user.
 - name
 - slug
 - owner_id
+- singleton (database-enforced single row)
 - created_at / updated_at
+
+The application has one canonical tree with the configured fixed ID; the
+database rejects any second tree.
 
 ### `tree_members`
 
@@ -317,8 +321,8 @@ All permissions are enforced with Supabase Row Level Security, not only hidden U
 
 ## 8. Privacy and security
 
-- Trees are private by default.
-- No public search-engine indexing of private content.
+- The initial version deliberately uses anonymous access so there is no sign-in barrier.
+- Anyone with the application URL can view and edit the tree until authentication is added.
 - Supabase Auth controls identity.
 - RLS protects every user-owned table.
 - Profile photos use a private Supabase Storage bucket and signed URLs.
@@ -421,7 +425,9 @@ Large central action:
 
 `Add the first person`
 
-After the first person, guide the user to add parent/partner/child from the node itself.
+The root action creates the first persisted person. After the first person,
+guide the user to add parent/partner/child from the node itself. There is no
+sign-in page, tree chooser or create-another-tree flow.
 
 ### Missing image
 
@@ -461,8 +467,9 @@ This is intentionally simple for the first implementation and can later move to 
 
 ### Runtime mode
 
-- **Backend-only mode:** Supabase-backed authentication, persistence and realtime sync. There is no mock-data fallback.
-- An empty persisted tree renders one UI-only root node. Creating that root writes the first real person to Supabase; every later family member is connected from persisted people.
+- **Backend-only mode:** Supabase-backed persistence and realtime sync. There is no mock-data fallback or sign-in flow in the initial version.
+- **Single-tree mode:** one configured tree ID and a database singleton constraint; the UI has no tree chooser.
+- An empty tree renders one UI-only root node. Creating that root writes the first real person to Supabase; every later family member is connected from persisted people.
 
 ## 15. Realtime behaviour
 

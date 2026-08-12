@@ -28,73 +28,8 @@ function mapRelationship(row) {
 }
 
 export const familyService = {
-  async getSession() {
-    const supabase = await getSupabase();
-    const { data, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    return data.session;
-  },
-
-  async signInWithEmail(email) {
-    const supabase = await getSupabase();
-    const emailRedirectTo = new URL('./', window.location.href).href;
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo }
-    });
-    if (error) throw error;
-  },
-
-  async signOut() {
-    const supabase = await getSupabase();
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-  },
-
-  async onAuthStateChange(callback) {
-    const supabase = await getSupabase();
-    const { data } = supabase.auth.onAuthStateChange(callback);
-    return () => data.subscription.unsubscribe();
-  },
-
-  async listTrees() {
-    const supabase = await getSupabase();
-    const { data, error } = await supabase.from('trees').select('id,name,slug,created_at').order('created_at');
-    if (error) throw error;
-    return data;
-  },
-
-  async createTree(name) {
-    const supabase = await getSupabase();
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError) throw userError;
-    if (!userData.user) throw new Error('Sign in before creating a family tree.');
-
-    const tree = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      slug: null
-    };
-    const { error: treeError } = await supabase
-      .from('trees')
-      .insert({ id: tree.id, name: tree.name, owner_id: userData.user.id });
-    if (treeError) throw treeError;
-
-    const { error: memberError } = await supabase.from('tree_members').insert({
-      tree_id: tree.id,
-      user_id: userData.user.id,
-      role: 'owner'
-    });
-    if (memberError) {
-      const { error: rollbackError } = await supabase.from('trees').delete().eq('id', tree.id);
-      if (rollbackError) console.error('Unable to roll back incomplete tree creation', rollbackError);
-      throw memberError;
-    }
-    return tree;
-  },
-
   async loadTree(treeId = config.defaultTreeId) {
-    if (!treeId) throw new Error('Choose a family tree before loading its members.');
+    if (!treeId) throw new Error('The family tree is not configured.');
     const supabase = await getSupabase();
     const [{ data: tree, error: treeError }, { data: people, error: peopleError }, { data: relationships, error: relError }] = await Promise.all([
       supabase.from('trees').select('id,name,slug').eq('id', treeId).single(),

@@ -4,17 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#ffffff" />
-  <meta name="description" content="A private collaborative family tree." />
+  <meta name="description" content="A simple persistent family tree." />
   <title>Family Tree</title>
   <link rel="stylesheet" href="./src/styles.css" />
 </head>
 <body>
   <div id="app" class="app-shell">
     <header class="topbar">
-      <button class="family-title ghost-button" id="familyMenuButton" type="button" aria-label="Family menu">
+      <button class="family-title ghost-button" id="familyMenuButton" type="button" aria-label="Fit family tree in view">
         <span class="brand-mark" aria-hidden="true">⌘</span>
         <span id="familyName">Family Tree</span>
-        <span class="chevron" aria-hidden="true">⌄</span>
       </button>
 
       <div class="search-wrap">
@@ -28,7 +27,6 @@
         <span id="connectionStatus" class="connection-status waiting" aria-live="polite">Connecting…</span>
         <button id="addPersonButton" class="primary-button" type="button"><span>＋</span> Add person</button>
         <button id="activityButton" class="icon-button" type="button" aria-label="Activity">♢</button>
-        <button id="accountButton" class="avatar-button" type="button" aria-label="Account"><span>FT</span></button>
       </div>
     </header>
 
@@ -123,52 +121,6 @@
         <button class="primary-button" type="submit">Save</button>
       </div>
     </form>
-  </dialog>
-
-  <dialog id="authDialog" class="modal auth-modal">
-    <div class="modal-head">
-      <div>
-        <span class="eyebrow">Private family space</span>
-        <h2>Sign in to your family tree</h2>
-        <p>We’ll email you a secure sign-in link. No password needed.</p>
-      </div>
-    </div>
-    <form id="authForm" class="simple-form">
-      <label>Email address<input id="authEmailInput" name="email" type="email" required autocomplete="email" placeholder="you@example.com" /></label>
-      <div id="authStatus" class="form-status" role="status"></div>
-      <button class="primary-button wide-button" type="submit">Email me a sign-in link</button>
-    </form>
-  </dialog>
-
-  <dialog id="treeDialog" class="modal tree-modal">
-    <div class="modal-head">
-      <div>
-        <span class="eyebrow">Your family trees</span>
-        <h2>Choose a tree</h2>
-        <p>Select an existing tree or start a new private one.</p>
-      </div>
-      <button class="icon-button modal-close" type="button" data-close-dialog="treeDialog">×</button>
-    </div>
-    <div id="treeList" class="tree-list"></div>
-    <form id="createTreeForm" class="simple-form create-tree-form">
-      <label>New tree name<input id="treeNameInput" name="treeName" required maxlength="120" placeholder="e.g. My Family Tree" /></label>
-      <div id="treeStatus" class="form-status" role="status"></div>
-      <button class="primary-button" type="submit">Create family tree</button>
-    </form>
-  </dialog>
-
-  <dialog id="accountDialog" class="modal account-modal">
-    <div class="modal-head">
-      <div>
-        <span class="eyebrow">Signed in</span>
-        <h2>Your account</h2>
-        <p id="accountEmail"></p>
-      </div>
-      <button class="icon-button modal-close" type="button" data-close-dialog="accountDialog">×</button>
-    </div>
-    <div class="account-actions">
-      <button id="signOutButton" class="secondary-button wide-button" type="button">Sign out</button>
-    </div>
   </dialog>
 
   <div id="toastRegion" class="toast-region" aria-live="polite"></div>
