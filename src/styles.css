@@ -157,17 +157,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .simple-form label { display: grid; gap: 6px; color: #686d7b; font-size: 11px; }
 .simple-form input { width: 100%; min-height: 43px; border: 1px solid var(--border); border-radius: 9px; padding: 0 12px; color: var(--text); background: white; }
 .wide-button { width: 100%; }
-.auth-modal { width: min(430px, calc(100vw - 28px)); }
-.auth-modal .modal-head { padding-bottom: 17px; }
-.auth-modal .form-status:empty { display: none; }
 .tree-list { display: grid; gap: 8px; max-height: 230px; overflow: auto; padding: 7px 22px 16px; }
 .tree-list:empty { display: none; }
 .tree-list button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 50px; border: 1px solid var(--border); border-radius: 10px; padding: 0 14px; background: var(--surface); cursor: pointer; text-align: left; }
 .tree-list button:hover, .tree-list button.active { border-color: #bec1ff; background: var(--accent-soft); }
 .tree-list button span { color: var(--muted); font-size: 12px; }
-.create-tree-form { border-top: 1px solid var(--border); padding-top: 18px; }
-.create-tree-form .primary-button { justify-self: end; }
-.account-actions { padding: 8px 22px 24px; }
 .toast-region { position: fixed; left: 50%; bottom: 22px; z-index: 100; display: grid; gap: 8px; transform: translateX(-50%); pointer-events: none; }
 .toast { padding: 10px 14px; border-radius: 9px; background: #262a35; color: white; box-shadow: var(--shadow); font-size: 12px; animation: toast-in .18s ease-out; }
 @keyframes toast-in { from { transform: translateY(8px); opacity: 0; } }

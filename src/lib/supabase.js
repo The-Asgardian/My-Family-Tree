@@ -13,7 +13,7 @@ export async function getSupabase() {
   if (!clientPromise) {
     clientPromise = import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/+esm')
       .then(({ createClient }) => createClient(config.supabaseUrl, config.supabaseAnonKey, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
       }));
   }
   return clientPromise;

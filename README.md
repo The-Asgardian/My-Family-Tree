@@ -1,6 +1,6 @@
 # Family Tree
 
-A modern, collaborative, photo-first family tree web app designed for GitHub Pages + Supabase.
+A simple, photo-first family tree web app designed for GitHub Pages + Supabase.
 
 The approved product/UI specification is in [`DESIGN.md`](./DESIGN.md), with the approved visual reference at [`docs/approved-ui.png`](./docs/approved-ui.png).
 
@@ -16,8 +16,7 @@ The zero-build static app now runs exclusively against Supabase and includes:
 - search and focus
 - persistent add-relative flow
 - a UI-only root node for an empty tree
-- passwordless Supabase email sign-in
-- family-tree discovery and reliable first-tree creation
+- one fixed family tree with reliable first-use creation
 - Supabase-backed people and relationship writes
 - private photo uploads with short-lived signed URLs
 - live refresh when another editor changes a tree
@@ -43,7 +42,8 @@ browser-safe publishable key:
 export const config = {
   supabaseUrl: 'https://YOUR_PROJECT.supabase.co',
   supabaseAnonKey: 'sb_publishable_...',
-  defaultTreeId: ''
+  defaultTreeId: 'A-FIXED-UUID',
+  defaultTreeName: 'My Family Tree'
 };
 ```
 
@@ -51,15 +51,15 @@ Apply the SQL migrations in `supabase/migrations/` through the Supabase CLI
 before using the app. They intentionally contain no family seed data, and local
 Supabase seeding is disabled.
 
-In Supabase Auth settings, add both the local URL and the deployed GitHub Pages
-URL to the allowed redirect URLs. Email sign-in links return to the app URL that
-requested them.
+This deployment has exactly one family tree and no sign-in page. While that tree
+is empty, the canvas shows one UI-only root node. Selecting the root creates the
+first persisted person. Every later family member is added as a relation to a
+persisted person. The database migration prevents a second tree from being
+created.
 
-Signed-in members can choose any shared tree or create a new private tree. A
-new tree contains no people; the canvas shows one UI-only root node that creates
-the first persisted person. The selected tree is remembered in the URL and
-browser storage. Leave `defaultTreeId` blank unless this deployment should
-always prefer one specific tree.
+Anonymous access keeps the first version simple: anyone who can open the app can
+view and edit the tree. Authentication can be added later without changing the
+stored family data.
 
 Never put a Supabase service-role key in this repository or in browser code.
 Only use a publishable key (or the legacy anon key) in `src/config.js`.
