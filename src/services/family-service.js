@@ -1,9 +1,5 @@
 import { config } from '../config.js';
-import { mockTree } from '../data/mock-data.js';
-import { getSupabase, isSupabaseConfigured } from '../lib/supabase.js';
-
-const clone = value => JSON.parse(JSON.stringify(value));
-let demoTree = clone(mockTree);
+import { getSupabase } from '../lib/supabase.js';
 
 function mapPerson(row, photoUrl = '') {
   return {
@@ -32,10 +28,7 @@ function mapRelationship(row) {
 }
 
 export const familyService = {
-  mode: isSupabaseConfigured() ? 'supabase' : 'demo',
-
   async getSession() {
-    if (!isSupabaseConfigured()) return null;
     const supabase = await getSupabase();
     const { data, error } = await supabase.auth.getSession();
     if (error) throw error;
@@ -59,14 +52,12 @@ export const familyService = {
   },
 
   async onAuthStateChange(callback) {
-    if (!isSupabaseConfigured()) return () => {};
     const supabase = await getSupabase();
     const { data } = supabase.auth.onAuthStateChange(callback);
     return () => data.subscription.unsubscribe();
   },
 
   async listTrees() {
-    if (!isSupabaseConfigured()) return [{ id: demoTree.id, name: demoTree.name, slug: demoTree.slug }];
     const supabase = await getSupabase();
     const { data, error } = await supabase.from('trees').select('id,name,slug,created_at').order('created_at');
     if (error) throw error;
@@ -79,11 +70,14 @@ export const familyService = {
     if (userError) throw userError;
     if (!userData.user) throw new Error('Sign in before creating a family tree.');
 
-    const { data: tree, error: treeError } = await supabase
+    const tree = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      slug: null
+    };
+    const { error: treeError } = await supabase
       .from('trees')
-      .insert({ name, owner_id: userData.user.id })
-      .select('id,name,slug')
-      .single();
+      .insert({ id: tree.id, name: tree.name, owner_id: userData.user.id });
     if (treeError) throw treeError;
 
     const { error: memberError } = await supabase.from('tree_members').insert({
@@ -91,12 +85,16 @@ export const familyService = {
       user_id: userData.user.id,
       role: 'owner'
     });
-    if (memberError) throw memberError;
+    if (memberError) {
+      const { error: rollbackError } = await supabase.from('trees').delete().eq('id', tree.id);
+      if (rollbackError) console.error('Unable to roll back incomplete tree creation', rollbackError);
+      throw memberError;
+    }
     return tree;
   },
 
   async loadTree(treeId = config.defaultTreeId) {
-    if (!isSupabaseConfigured() || !treeId) return clone(demoTree);
+    if (!treeId) throw new Error('Choose a family tree before loading its members.');
     const supabase = await getSupabase();
     const [{ data: tree, error: treeError }, { data: people, error: peopleError }, { data: relationships, error: relError }] = await Promise.all([
       supabase.from('trees').select('id,name,slug').eq('id', treeId).single(),
@@ -121,11 +119,7 @@ export const familyService = {
   },
 
   async createPerson(treeId, person) {
-    if (!isSupabaseConfigured() || !treeId || treeId === 'demo-tree') {
-      const created = { ...person, id: crypto.randomUUID() };
-      demoTree.people.push(created);
-      return clone(created);
-    }
+    if (!treeId) throw new Error('Choose a family tree before adding a person.');
     const supabase = await getSupabase();
     const { data, error } = await supabase.from('people').insert({
       tree_id: treeId,
@@ -142,12 +136,15 @@ export const familyService = {
     return mapPerson(data);
   },
 
+  async deletePerson(treeId, personId) {
+    if (!treeId) throw new Error('Choose a family tree before removing a person.');
+    const supabase = await getSupabase();
+    const { error } = await supabase.from('people').delete().eq('tree_id', treeId).eq('id', personId);
+    if (error) throw error;
+  },
+
   async createRelationship(treeId, relationship) {
-    if (!isSupabaseConfigured() || !treeId || treeId === 'demo-tree') {
-      const created = { ...relationship, id: crypto.randomUUID() };
-      demoTree.relationships.push(created);
-      return clone(created);
-    }
+    if (!treeId) throw new Error('Choose a family tree before adding a relationship.');
     const supabase = await getSupabase();
     const { data, error } = await supabase.from('relationships').insert({
       tree_id: treeId,
@@ -161,7 +158,7 @@ export const familyService = {
   },
 
   async uploadPersonPhoto(treeId, personId, file) {
-    if (!isSupabaseConfigured() || !treeId || treeId === 'demo-tree') return null;
+    if (!treeId) throw new Error('Choose a family tree before uploading a photo.');
     const supabase = await getSupabase();
     const extension = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
     const path = `${treeId}/${personId}/${crypto.randomUUID()}.${extension}`;
@@ -190,12 +187,7 @@ export const familyService = {
   },
 
   async updatePerson(treeId, personId, patch) {
-    if (!isSupabaseConfigured() || !treeId || treeId === 'demo-tree') {
-      const index = demoTree.people.findIndex(p => p.id === personId);
-      if (index < 0) throw new Error('Person not found');
-      demoTree.people[index] = { ...demoTree.people[index], ...patch };
-      return clone(demoTree.people[index]);
-    }
+    if (!treeId) throw new Error('Choose a family tree before updating a person.');
     const supabase = await getSupabase();
     const payload = {};
     if ('fullName' in patch) payload.full_name = patch.fullName;
@@ -207,11 +199,11 @@ export const familyService = {
     if ('about' in patch) payload.about = patch.about || null;
     const { data, error } = await supabase.from('people').update(payload).eq('tree_id', treeId).eq('id', personId).select().single();
     if (error) throw error;
-    return mapPerson(data, patch.photoUrl || '');
+    return mapPerson(data);
   },
 
   async subscribeToTree(treeId, callback) {
-    if (!isSupabaseConfigured() || !treeId || treeId === 'demo-tree') return () => {};
+    if (!treeId) return () => {};
     const supabase = await getSupabase();
     const channel = supabase
       .channel(`family-tree:${treeId}`)
