@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="description" content="A private collaborative family tree." />
+  <title>Family Tree</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="topbar">
+      <button class="family-title ghost-button" id="familyMenuButton" type="button" aria-label="Family menu">
+        <span class="brand-mark" aria-hidden="true">⌘</span>
+        <span id="familyName">Hayre Family</span>
+        <span class="chevron" aria-hidden="true">⌄</span>
+      </button>
+
+      <div class="search-wrap">
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input id="globalSearch" type="search" placeholder="Search people…" autocomplete="off" aria-label="Search people" />
+        <span class="shortcut-hint">⌘K</span>
+        <div id="searchResults" class="search-results" hidden></div>
+      </div>
+
+      <div class="header-actions">
+        <span id="connectionStatus" class="connection-status" aria-live="polite">Demo</span>
+        <button id="addPersonButton" class="primary-button" type="button"><span>＋</span> Add person</button>
+        <button id="activityButton" class="icon-button" type="button" aria-label="Activity">♢</button>
+        <button id="accountButton" class="avatar-button" type="button" aria-label="Account"><span>AH</span></button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="tree-pane" aria-label="Family tree">
+        <nav class="view-tabs" aria-label="Tree views">
+          <button class="view-tab active" data-view="family" type="button">♧ <span>Family</span></button>
+          <button class="view-tab" data-view="ancestors" type="button">↟ <span>Ancestors</span></button>
+          <button class="view-tab" data-view="descendants" type="button">↡ <span>Descendants</span></button>
+          <button class="view-tab" data-view="list" type="button">☷ <span>List</span></button>
+        </nav>
+
+        <div id="treeViewport" class="tree-viewport" tabindex="0">
+          <div id="treeStage" class="tree-stage" aria-live="polite">
+            <svg id="relationshipLayer" class="relationship-layer" aria-hidden="true"></svg>
+            <div id="nodeLayer" class="node-layer"></div>
+          </div>
+          <div id="emptyState" class="empty-state" hidden>
+            <h2>Start your family tree</h2>
+            <p>Add the first person, then build their family directly from their card.</p>
+            <button id="emptyAddButton" class="primary-button" type="button">＋ Add the first person</button>
+          </div>
+        </div>
+
+        <aside class="zoom-toolbar" aria-label="Tree controls">
+          <button id="centreButton" class="tool-button" type="button" title="Centre selected person">◎</button>
+          <span class="tool-divider"></span>
+          <button id="zoomInButton" class="tool-button" type="button" title="Zoom in">＋</button>
+          <output id="zoomValue">100%</output>
+          <button id="zoomOutButton" class="tool-button" type="button" title="Zoom out">−</button>
+          <span class="tool-divider"></span>
+          <button id="fitButton" class="tool-button" type="button" title="Fit tree">⌗</button>
+        </aside>
+
+        <div class="history-controls">
+          <button id="undoButton" class="history-button" type="button" title="Undo" disabled>↶</button>
+          <span></span>
+          <button id="redoButton" class="history-button" type="button" title="Redo" disabled>↷</button>
+        </div>
+
+        <button id="mobileDetailsButton" class="mobile-details-button" type="button" hidden>View details</button>
+      </section>
+
+      <aside id="detailsPanel" class="details-panel" aria-label="Selected person details">
+        <button id="closeDetailsButton" class="panel-close icon-button" type="button" aria-label="Close details">×</button>
+        <div id="detailsContent"></div>
+      </aside>
+    </main>
+  </div>
+
+  <dialog id="relationshipDialog" class="modal relationship-modal">
+    <div class="modal-head">
+      <div>
+        <h2 id="relationshipTitle">Add a relative</h2>
+        <p id="relationshipSubtitle"></p>
+      </div>
+      <button class="icon-button modal-close" type="button" data-close-dialog="relationshipDialog">×</button>
+    </div>
+    <div class="relationship-grid">
+      <button type="button" data-relationship="parent"><span>♙</span><b>Parent</b></button>
+      <button type="button" data-relationship="partner"><span>♡</span><b>Partner</b></button>
+      <button type="button" data-relationship="sibling"><span>♧</span><b>Sibling</b></button>
+      <button type="button" data-relationship="child"><span>♙</span><b>Child</b></button>
+    </div>
+  </dialog>
+
+  <dialog id="personDialog" class="modal person-modal">
+    <div class="modal-head">
+      <div>
+        <h2 id="personDialogTitle">Add person</h2>
+        <p id="personDialogSubtitle">Add their basic details. You can add more later.</p>
+      </div>
+      <button class="icon-button modal-close" type="button" data-close-dialog="personDialog">×</button>
+    </div>
+    <form id="personForm">
+      <div class="person-form-grid">
+        <label class="photo-upload" for="personPhotoInput">
+          <input id="personPhotoInput" type="file" accept="image/*" hidden />
+          <span id="photoPreview" class="photo-preview"><span>＋</span><small>Add photo</small></span>
+        </label>
+        <div class="form-fields">
+          <label>Full name<input id="personNameInput" name="fullName" required autocomplete="name" /></label>
+          <label>Date of birth<input id="personDobInput" name="dob" type="date" /></label>
+          <label>Approximate age<input id="personAgeInput" name="estimatedAge" type="number" min="0" max="130" inputmode="numeric" /></label>
+          <label class="switch-row"><span>Living</span><input id="personLivingInput" name="living" type="checkbox" checked /></label>
+        </div>
+      </div>
+      <details class="more-details">
+        <summary>＋ More details</summary>
+        <div class="expanded-fields">
+          <label>Birthplace<input id="personBirthplaceInput" name="birthplace" /></label>
+          <label>Date of death<input id="personDeathInput" name="deathDate" type="date" /></label>
+          <label>About<textarea id="personAboutInput" name="about" rows="3"></textarea></label>
+        </div>
+      </details>
+      <div id="formStatus" class="form-status" role="status"></div>
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-close-dialog="personDialog">Cancel</button>
+        <button class="primary-button" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="authDialog" class="modal auth-modal">
+    <div class="modal-head">
+      <div>
+        <span class="eyebrow">Private family space</span>
+        <h2>Sign in to your family tree</h2>
+        <p>We’ll email you a secure sign-in link. No password needed.</p>
+      </div>
+    </div>
+    <form id="authForm" class="simple-form">
+      <label>Email address<input id="authEmailInput" name="email" type="email" required autocomplete="email" placeholder="you@example.com" /></label>
+      <div id="authStatus" class="form-status" role="status"></div>
+      <button class="primary-button wide-button" type="submit">Email me a sign-in link</button>
+    </form>
+  </dialog>
+
+  <dialog id="treeDialog" class="modal tree-modal">
+    <div class="modal-head">
+      <div>
+        <span class="eyebrow">Your family trees</span>
+        <h2>Choose a tree</h2>
+        <p>Select an existing tree or start a new private one.</p>
+      </div>
+      <button class="icon-button modal-close" type="button" data-close-dialog="treeDialog">×</button>
+    </div>
+    <div id="treeList" class="tree-list"></div>
+    <form id="createTreeForm" class="simple-form create-tree-form">
+      <label>New tree name<input id="treeNameInput" name="treeName" required maxlength="120" placeholder="e.g. The Hayre Family" /></label>
+      <div id="treeStatus" class="form-status" role="status"></div>
+      <button class="primary-button" type="submit">Create family tree</button>
+    </form>
+  </dialog>
+
+  <dialog id="accountDialog" class="modal account-modal">
+    <div class="modal-head">
+      <div>
+        <span class="eyebrow">Signed in</span>
+        <h2>Your account</h2>
+        <p id="accountEmail"></p>
+      </div>
+      <button class="icon-button modal-close" type="button" data-close-dialog="accountDialog">×</button>
+    </div>
+    <div class="account-actions">
+      <button id="signOutButton" class="secondary-button wide-button" type="button">Sign out</button>
+    </div>
+  </dialog>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
