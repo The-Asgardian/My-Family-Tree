@@ -1,5 +1,14 @@
 import { familyService } from './services/family-service.js';
 import { config } from './config.js';
+import {
+  comparePeopleByAge,
+  composeFullName,
+  formatDate,
+  middleNameForGender,
+  parseDateInput,
+  structuredNameFor
+} from './lib/person-utils.js';
+import { optimisePhoto } from './lib/photo-utils.js';
 
 const CARD_W = 136;
 const CARD_H = 192;
@@ -23,8 +32,9 @@ const state = {
   addRelationship: null,
   editingId: null,
   drag: null,
-  photoDataUrl: '',
   photoFile: null,
+  photoPreviewUrl: '',
+  photoProcessing: null,
   treeConnected: false,
   stopTreeSubscription: null,
   realtimeReloadTimer: null
@@ -50,7 +60,10 @@ const els = {
   personDialogTitle: document.querySelector('#personDialogTitle'),
   personDialogSubtitle: document.querySelector('#personDialogSubtitle'),
   personForm: document.querySelector('#personForm'),
-  personName: document.querySelector('#personNameInput'),
+  personFirstName: document.querySelector('#personFirstNameInput'),
+  personMiddleName: document.querySelector('#personMiddleNameInput'),
+  personLastName: document.querySelector('#personLastNameInput'),
+  personGender: document.querySelector('#personGenderInput'),
   personDob: document.querySelector('#personDobInput'),
   personAge: document.querySelector('#personAgeInput'),
   personLiving: document.querySelector('#personLivingInput'),
@@ -116,12 +129,12 @@ function ageFor(person) {
 }
 
 function formattedAge(person) {
+  const birthDate = formatDate(person.dateOfBirth);
   if (person.isDeceased && person.dateOfBirth) {
-    const birthYear = person.dateOfBirth.slice(0, 4);
-    const deathYear = person.dateOfDeath?.slice(0, 4) || '—';
-    return `${birthYear}–${deathYear}`;
+    return `${birthDate}–${formatDate(person.dateOfDeath) || '—'}`;
   }
   const age = ageFor(person);
+  if (birthDate) return age === null ? birthDate : `${birthDate} · Age ${age}`;
   return age === null ? 'Age unknown' : `Age ${age}`;
 }
 
@@ -253,8 +266,14 @@ function layoutTree() {
     const parentId = primaryParent.get(group.id);
     if (parentId) primaryChildren.get(parentId).push(group.id);
   }
-  for (const children of primaryChildren.values()) {
-    children.sort((a, b) => groupById.get(a).order - groupById.get(b).order);
+  for (const [parentGroupId, children] of primaryChildren.entries()) {
+    const branchPerson = childGroupId => {
+      const edges = edgesByGroups.get(`${parentGroupId}→${childGroupId}`) || [];
+      return edges.map(edge => personById(edge.personBId)).filter(Boolean).sort((a, b) => comparePeopleByAge(a, b, personOrder))[0]
+        || groupById.get(childGroupId).people[0];
+    };
+    children.sort((a, b) => comparePeopleByAge(branchPerson(a), branchPerson(b), personOrder)
+      || groupById.get(a).order - groupById.get(b).order);
   }
 
   const subtreeWidth = new Map();
@@ -298,7 +317,9 @@ function layoutTree() {
     if (childAnchors.length) {
       const branchCentre = (Math.min(...childAnchors) + Math.max(...childAnchors)) / 2;
       const parentOffset = parentOffsets.reduce((sum, offset) => sum + offset, 0) / parentOffsets.length;
-      centres.set(groupId, branchCentre - parentOffset);
+      const minimumCentre = left + group.width / 2;
+      const maximumCentre = left + width - group.width / 2;
+      centres.set(groupId, Math.min(maximumCentre, Math.max(minimumCentre, branchCentre - parentOffset)));
     }
   };
 
@@ -345,7 +366,7 @@ function layoutTree() {
 function nodeMarkup(person) {
   const photo = person.photoUrl
     ? `<img src="${escapeHtml(person.photoUrl)}" alt="" loading="lazy">`
-    : `<div class="node-placeholder"><strong>${escapeHtml(initials(person.fullName))}</strong><small>Add photo</small></div>`;
+    : `<div class="node-placeholder"><strong>${escapeHtml(initials(person.fullName))}</strong><small>No photo</small></div>`;
   return `
     <div class="node-photo">${photo}</div>
     <div class="node-meta"><strong>${escapeHtml(person.fullName)}</strong><span>${escapeHtml(formattedAge(person))}</span></div>
@@ -433,7 +454,7 @@ function renderListView(visible) {
   els.relationshipLayer.innerHTML = '';
   els.nodeLayer.innerHTML = `<div class="list-view">${state.tree.people.filter(p => visible.has(p.id)).map(person => `
     <button class="list-person" type="button" data-list-person="${person.id}">
-      <span class="mini-avatar">${escapeHtml(initials(person.fullName))}</span>
+      ${avatarMarkup(person)}
       <span><strong>${escapeHtml(person.fullName)}</strong><small>${escapeHtml(formattedAge(person))}</small></span>
       <span>›</span>
     </button>`).join('')}</div>`;
@@ -505,9 +526,17 @@ function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
 }
 
+function avatarMarkup(person, className = 'mini-avatar') {
+  return person.photoUrl
+    ? `<span class="${className} has-photo"><img src="${escapeHtml(person.photoUrl)}" alt="" loading="lazy"></span>`
+    : `<span class="${className}">${escapeHtml(initials(person.fullName))}</span>`;
+}
+
 function miniPeople(people) {
   if (!people.length) return '';
-  return people.map(p => `<button type="button" class="relation-chip" data-related-person="${p.id}"><span class="mini-avatar">${escapeHtml(initials(p.fullName))}</span>${escapeHtml(p.fullName)}</button>`).join('');
+  return [...people]
+    .sort((a, b) => comparePeopleByAge(a, b, new Map(state.tree.people.map((person, index) => [person.id, index]))))
+    .map(p => `<button type="button" class="relation-chip" data-related-person="${p.id}">${avatarMarkup(p)}${escapeHtml(p.fullName)}</button>`).join('');
 }
 
 function renderDetails() {
@@ -524,7 +553,8 @@ function renderDetails() {
   const partners = getPartners(person.id);
   const children = getChildren(person.id);
   const photo = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="Portrait of ${escapeHtml(person.fullName)}">` : `<div class="detail-photo-placeholder">${escapeHtml(initials(person.fullName))}</div>`;
-  const dob = person.dateOfBirth ? new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${person.dateOfBirth}T00:00:00`)) : 'Not added';
+  const dob = formatDate(person.dateOfBirth) || 'Not added';
+  const dod = formatDate(person.dateOfDeath) || 'Not added';
 
   els.detailsContent.innerHTML = `
     <section class="profile-hero">
@@ -540,16 +570,12 @@ function renderDetails() {
     <section class="profile-actions">
       <button class="primary-button" type="button" id="panelAddRelative">＋ Add relative</button>
       <button class="secondary-button" type="button" id="panelEditPerson">✎ Edit person</button>
-      <button class="secondary-button icon-only" type="button" aria-label="More actions">•••</button>
     </section>
     <section class="facts-grid">
       <div><span>Date of birth</span><strong>${escapeHtml(dob)}</strong></div>
+      ${person.isDeceased ? `<div><span>Date of death</span><strong>${escapeHtml(dod)}</strong></div>` : ''}
       <div><span>Birthplace</span><strong>${escapeHtml(person.birthplace || 'Not added')}</strong></div>
       <div><span>About</span><strong class="about-text">${escapeHtml(person.about || 'Add a note…')}</strong></div>
-    </section>
-    <nav class="profile-tabs"><button class="active" type="button">Photos</button><button type="button">Facts</button><button type="button">Notes</button><button type="button">Activity</button></nav>
-    <section class="photo-strip">
-      <div class="photo-thumb">${photo}</div><button class="photo-add-tile" type="button">＋</button>
     </section>
   `;
 
@@ -567,6 +593,7 @@ function selectPerson(id, centre = false) {
   state.selectedId = id;
   renderTree();
   renderDetails();
+  els.detailsPanel.scrollTop = 0;
   if (centre) centreOnSelected();
   if (window.innerWidth < 700) els.mobileDetailsButton.hidden = false;
 }
@@ -606,6 +633,15 @@ function fitTree() {
   applyTransform();
 }
 
+function autoArrangeTree() {
+  if (state.view === 'list') setView('family');
+  else renderTree();
+  requestAnimationFrame(() => {
+    fitTree();
+    toast('Tree spacing arranged');
+  });
+}
+
 function centreOnSelected() {
   const pos = state.positions.get(state.selectedId);
   if (!pos || state.view === 'list') return;
@@ -618,6 +654,15 @@ function centreOnSelected() {
 function setConnectionStatus(label, status = '') {
   els.connectionStatus.textContent = label;
   els.connectionStatus.className = `connection-status${status ? ` ${status}` : ''}`;
+}
+
+function updateAutomaticMiddleName() {
+  els.personMiddleName.value = middleNameForGender(els.personGender.value);
+}
+
+function clearPhotoPreview() {
+  if (state.photoPreviewUrl) URL.revokeObjectURL(state.photoPreviewUrl);
+  state.photoPreviewUrl = '';
 }
 
 function requireConnectedTree() {
@@ -679,12 +724,15 @@ function openRelationshipDialog(anchorId) {
 function openPersonDialog() {
   const anchor = personById(state.addAnchorId);
   state.editingId = null;
-  state.photoDataUrl = '';
+  clearPhotoPreview();
   state.photoFile = null;
+  state.photoProcessing = null;
   els.personDialogTitle.textContent = state.addRelationship ? `Add a ${state.addRelationship}` : 'Add person';
   els.personDialogSubtitle.textContent = anchor ? `This person will be connected to ${anchor.fullName}.` : 'Add their basic details. You can add more later.';
   els.personForm.reset();
   els.personLiving.checked = true;
+  els.personDeath.disabled = true;
+  updateAutomaticMiddleName();
   els.photoPreview.innerHTML = '<span>＋</span><small>Add photo</small>';
   els.formStatus.textContent = '';
   els.personDialog.showModal();
@@ -693,20 +741,27 @@ function openPersonDialog() {
 function openEditDialog(personId) {
   const person = personById(personId);
   if (!person) return;
+  els.personForm.reset();
   state.editingId = personId;
   state.addAnchorId = null;
   state.addRelationship = null;
   els.personDialogTitle.textContent = 'Edit person';
   els.personDialogSubtitle.textContent = `Update ${person.fullName}'s profile.`;
-  els.personName.value = person.fullName || '';
-  els.personDob.value = person.dateOfBirth || '';
+  const name = structuredNameFor(person);
+  els.personFirstName.value = name.firstName;
+  els.personLastName.value = name.lastName;
+  els.personGender.value = name.gender;
+  updateAutomaticMiddleName();
+  els.personDob.value = formatDate(person.dateOfBirth);
   els.personAge.value = person.estimatedAge ?? '';
   els.personLiving.checked = !person.isDeceased;
-  els.personDeath.value = person.dateOfDeath || '';
+  els.personDeath.value = formatDate(person.dateOfDeath);
+  els.personDeath.disabled = els.personLiving.checked;
   els.personBirthplace.value = person.birthplace || '';
   els.personAbout.value = person.about || '';
-  state.photoDataUrl = person.photoUrl || '';
+  clearPhotoPreview();
   state.photoFile = null;
+  state.photoProcessing = null;
   els.photoPreview.innerHTML = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="Preview">` : '<span>＋</span><small>Add photo</small>';
   els.formStatus.textContent = '';
   els.personDialog.showModal();
@@ -714,16 +769,26 @@ function openEditDialog(personId) {
 
 async function savePersonFromForm(event) {
   event.preventDefault();
-  const fullName = els.personName.value.trim();
-  if (!fullName) return;
   els.formStatus.textContent = 'Saving…';
   try {
+    if (state.photoProcessing) await state.photoProcessing;
+    const firstName = els.personFirstName.value.trim();
+    const lastName = els.personLastName.value.trim();
+    const gender = els.personGender.value;
+    const fullName = composeFullName(firstName, gender, lastName);
+    if (!firstName || !gender || !fullName) throw new Error('Add a first name and choose Male or Female.');
+    const dateOfBirth = parseDateInput(els.personDob.value);
+    const dateOfDeath = els.personLiving.checked ? null : parseDateInput(els.personDeath.value);
+    if (dateOfBirth && dateOfDeath && dateOfDeath < dateOfBirth) throw new Error('Date of death cannot be before date of birth.');
     const payload = {
       fullName,
-      dateOfBirth: els.personDob.value || null,
+      firstName,
+      lastName,
+      gender,
+      dateOfBirth,
       estimatedAge: els.personAge.value ? Number(els.personAge.value) : null,
       isDeceased: !els.personLiving.checked,
-      dateOfDeath: els.personDeath.value || null,
+      dateOfDeath,
       birthplace: els.personBirthplace.value.trim(),
       about: els.personAbout.value.trim()
     };
@@ -737,7 +802,7 @@ async function savePersonFromForm(event) {
       Object.assign(currentPerson, updated, { photoUrl: currentPhotoUrl });
       if (state.photoFile) {
         try {
-          Object.assign(currentPerson, await familyService.uploadPersonPhoto(state.tree.id, state.editingId, state.photoFile));
+          Object.assign(currentPerson, await familyService.uploadPersonPhoto(state.tree.id, state.editingId, state.photoFile, currentPerson.photoPath));
         } catch (error) {
           console.error(error);
           photoWarning = 'Profile saved, but the photo could not be uploaded.';
@@ -814,7 +879,7 @@ function handleSearch(query) {
     return;
   }
   const matches = state.tree.people.filter(p => p.fullName.toLowerCase().includes(q)).slice(0, 8);
-  els.searchResults.innerHTML = matches.length ? matches.map(p => `<button type="button" data-search-id="${p.id}"><span class="mini-avatar">${escapeHtml(initials(p.fullName))}</span><span><strong>${escapeHtml(p.fullName)}</strong><small>${escapeHtml(formattedAge(p))}</small></span></button>`).join('') : '<div class="no-results">No people found</div>';
+  els.searchResults.innerHTML = matches.length ? matches.map(p => `<button type="button" data-search-id="${p.id}">${avatarMarkup(p, 'mini-avatar search-avatar')}<span><strong>${escapeHtml(p.fullName)}</strong><small>${escapeHtml(formattedAge(p))}</small></span></button>`).join('') : '<div class="no-results">No people found</div>';
   els.searchResults.hidden = false;
   els.searchResults.querySelectorAll('[data-search-id]').forEach(button => button.addEventListener('click', () => {
     els.search.value = '';
@@ -855,6 +920,7 @@ function bindEvents() {
   document.querySelector('#zoomInButton').addEventListener('click', () => setZoom(state.zoom + 0.12));
   document.querySelector('#zoomOutButton').addEventListener('click', () => setZoom(state.zoom - 0.12));
   document.querySelector('#fitButton').addEventListener('click', fitTree);
+  document.querySelector('#autoLayoutButton').addEventListener('click', autoArrangeTree);
   document.querySelector('#centreButton').addEventListener('click', centreOnSelected);
   els.search.addEventListener('input', () => handleSearch(els.search.value));
   els.search.addEventListener('keydown', event => { if (event.key === 'Escape') { els.search.value = ''; els.searchResults.hidden = true; } });
@@ -868,17 +934,34 @@ function bindEvents() {
     openPersonDialog();
   }));
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => document.querySelector(`#${button.dataset.closeDialog}`).close()));
+  els.personDialog.addEventListener('close', clearPhotoPreview);
   els.personForm.addEventListener('submit', savePersonFromForm);
+  els.personGender.addEventListener('change', updateAutomaticMiddleName);
+  els.personLiving.addEventListener('change', () => {
+    els.personDeath.disabled = els.personLiving.checked;
+    if (els.personLiving.checked) els.personDeath.value = '';
+  });
   els.personPhoto.addEventListener('change', event => {
     const file = event.target.files?.[0];
     if (!file) return;
-    state.photoFile = file;
-    const reader = new FileReader();
-    reader.onload = () => {
-      state.photoDataUrl = reader.result;
-      els.photoPreview.innerHTML = `<img src="${reader.result}" alt="Preview">`;
-    };
-    reader.readAsDataURL(file);
+    els.formStatus.textContent = 'Optimising photo…';
+    const processing = optimisePhoto(file);
+    state.photoProcessing = processing;
+    processing.then(optimised => {
+      if (state.photoProcessing !== processing) return;
+      state.photoFile = optimised;
+      clearPhotoPreview();
+      state.photoPreviewUrl = URL.createObjectURL(optimised);
+      els.photoPreview.innerHTML = `<img src="${escapeHtml(state.photoPreviewUrl)}" alt="Preview">`;
+      const savedPercent = file.size ? Math.max(0, Math.round((1 - optimised.size / file.size) * 100)) : 0;
+      els.formStatus.textContent = `Photo ready as WebP${savedPercent ? ` · ${savedPercent}% smaller` : ''}.`;
+    }).catch(error => {
+      if (state.photoProcessing !== processing) return;
+      state.photoFile = null;
+      els.formStatus.textContent = error?.message || 'This photo could not be prepared.';
+    }).finally(() => {
+      if (state.photoProcessing === processing) state.photoProcessing = null;
+    });
   });
 
   document.querySelector('#closeDetailsButton').addEventListener('click', () => {

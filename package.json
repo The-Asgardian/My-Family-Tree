@@ -1,0 +1,8 @@
+{
+  "name": "my-family-tree",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/person-utils.test.mjs"
+  }
+}

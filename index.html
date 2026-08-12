@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#ffffff" />
   <meta name="description" content="A simple persistent family tree." />
   <title>Family Tree</title>
-  <link rel="stylesheet" href="./src/styles.css?v=20260812-layout" />
+  <link rel="stylesheet" href="./src/styles.css?v=20260812-profile-v2" />
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -26,7 +26,6 @@
       <div class="header-actions">
         <span id="connectionStatus" class="connection-status waiting" aria-live="polite">Connecting…</span>
         <button id="addPersonButton" class="primary-button" type="button"><span>＋</span> Add person</button>
-        <button id="activityButton" class="icon-button" type="button" aria-label="Activity">♢</button>
       </div>
     </header>
 
@@ -38,6 +37,8 @@
           <button class="view-tab" data-view="descendants" type="button">↡ <span>Descendants</span></button>
           <button class="view-tab" data-view="list" type="button">☷ <span>List</span></button>
         </nav>
+
+        <button id="autoLayoutButton" class="secondary-button auto-layout-button" type="button">↔ Auto arrange</button>
 
         <div id="treeViewport" class="tree-viewport" tabindex="0">
           <div id="treeStage" class="tree-stage" aria-live="polite">
@@ -51,13 +52,13 @@
         </div>
 
         <aside class="zoom-toolbar" aria-label="Tree controls">
-          <button id="centreButton" class="tool-button" type="button" title="Centre selected person">◎</button>
+          <button id="centreButton" class="tool-button" type="button" title="Centre selected person" aria-label="Centre selected person">◎</button>
           <span class="tool-divider"></span>
-          <button id="zoomInButton" class="tool-button" type="button" title="Zoom in">＋</button>
+          <button id="zoomInButton" class="tool-button" type="button" title="Zoom in" aria-label="Zoom in">＋</button>
           <output id="zoomValue">100%</output>
-          <button id="zoomOutButton" class="tool-button" type="button" title="Zoom out">−</button>
+          <button id="zoomOutButton" class="tool-button" type="button" title="Zoom out" aria-label="Zoom out">−</button>
           <span class="tool-divider"></span>
-          <button id="fitButton" class="tool-button" type="button" title="Fit tree">⌗</button>
+          <button id="fitButton" class="tool-button" type="button" title="Fit tree" aria-label="Fit tree">⌗</button>
         </aside>
 
         <button id="mobileDetailsButton" class="mobile-details-button" type="button" hidden>View details</button>
@@ -101,8 +102,14 @@
           <span id="photoPreview" class="photo-preview"><span>＋</span><small>Add photo</small></span>
         </label>
         <div class="form-fields">
-          <label>Full name<input id="personNameInput" name="fullName" required autocomplete="name" /></label>
-          <label>Date of birth<input id="personDobInput" name="dob" type="date" /></label>
+          <div class="name-fields">
+            <label>First name(s)<input id="personFirstNameInput" name="firstName" required autocomplete="given-name" /></label>
+            <label>Gender<select id="personGenderInput" name="gender" required><option value="">Choose…</option><option value="male">Male</option><option value="female">Female</option></select></label>
+            <label>Middle name<input id="personMiddleNameInput" name="middleName" readonly aria-describedby="middleNameHint" /></label>
+            <label>Last name <small>(if known)</small><input id="personLastNameInput" name="lastName" autocomplete="family-name" /></label>
+          </div>
+          <small id="middleNameHint" class="field-hint">Singh or Kaur is set automatically from gender.</small>
+          <label>Date of birth<input id="personDobInput" name="dob" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="bday" /></label>
           <label>Approximate age<input id="personAgeInput" name="estimatedAge" type="number" min="0" max="130" inputmode="numeric" /></label>
           <label class="switch-row"><span>Living</span><input id="personLivingInput" name="living" type="checkbox" checked /></label>
         </div>
@@ -111,7 +118,7 @@
         <summary>＋ More details</summary>
         <div class="expanded-fields">
           <label>Birthplace<input id="personBirthplaceInput" name="birthplace" /></label>
-          <label>Date of death<input id="personDeathInput" name="deathDate" type="date" /></label>
+          <label>Date of death<input id="personDeathInput" name="deathDate" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" /></label>
           <label>About<textarea id="personAboutInput" name="about" rows="3"></textarea></label>
         </div>
       </details>
@@ -125,6 +132,6 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite"></div>
 
-  <script type="module" src="./src/app.js?v=20260812-layout"></script>
+  <script type="module" src="./src/app.js?v=20260812-profile-v2"></script>
 </body>
 </html>

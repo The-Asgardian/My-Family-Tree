@@ -13,12 +13,16 @@ The zero-build static app now runs exclusively against Supabase and includes:
 - person selection + right details panel
 - pan / zoom / fit / centre controls
 - family / ancestors / descendants / list views
-- search and focus
+- portrait search and jump-to-person focus
+- automatic tidy-tree layout and oldest-to-youngest sibling ordering
+- structured first/last names with automatic Singh/Kaur middle names
+- `dd/mm/yyyy` date entry and display
 - persistent add-relative flow
 - a UI-only root node for an empty tree
 - one fixed family tree with reliable first-use creation
 - Supabase-backed people and relationship writes
-- private photo uploads with short-lived signed URLs
+- automatic WebP portrait resizing/compression before private photo upload
+- private photo storage with short-lived signed URLs
 - live refresh when another editor changes a tree
 - RLS, audit logging, storage policies and Realtime publication setup
 
@@ -31,6 +35,12 @@ python3 -m http.server 8092
 ```
 
 Then open `http://localhost:8092`.
+
+Run the deterministic name, date and age-order tests with:
+
+```bash
+npm test
+```
 
 ## Supabase configuration
 

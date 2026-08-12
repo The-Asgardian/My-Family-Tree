@@ -5,6 +5,9 @@ function mapPerson(row, photoUrl = '') {
   return {
     id: row.id,
     fullName: row.full_name,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    gender: row.gender,
     preferredName: row.preferred_name,
     dateOfBirth: row.date_of_birth,
     estimatedAge: row.estimated_age,
@@ -59,6 +62,9 @@ export const familyService = {
     const { data, error } = await supabase.from('people').insert({
       tree_id: treeId,
       full_name: person.fullName,
+      first_name: person.firstName || null,
+      last_name: person.lastName || null,
+      gender: person.gender || null,
       date_of_birth: person.dateOfBirth || null,
       estimated_age: person.estimatedAge ?? null,
       is_deceased: person.isDeceased || false,
@@ -92,7 +98,7 @@ export const familyService = {
     return mapRelationship(data);
   },
 
-  async uploadPersonPhoto(treeId, personId, file) {
+  async uploadPersonPhoto(treeId, personId, file, previousPath = '') {
     if (!treeId) throw new Error('Choose a family tree before uploading a photo.');
     const supabase = await getSupabase();
     const extension = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
@@ -118,6 +124,10 @@ export const familyService = {
 
     const { data: signed, error: signedError } = await supabase.storage.from('family-photos').createSignedUrl(path, 3600);
     if (signedError) throw signedError;
+    if (previousPath && previousPath !== path) {
+      const { error: removeError } = await supabase.storage.from('family-photos').remove([previousPath]);
+      if (removeError) console.warn('The previous portrait could not be removed.', removeError);
+    }
     return mapPerson(updated, signed.signedUrl);
   },
 
@@ -126,6 +136,9 @@ export const familyService = {
     const supabase = await getSupabase();
     const payload = {};
     if ('fullName' in patch) payload.full_name = patch.fullName;
+    if ('firstName' in patch) payload.first_name = patch.firstName || null;
+    if ('lastName' in patch) payload.last_name = patch.lastName || null;
+    if ('gender' in patch) payload.gender = patch.gender || null;
     if ('dateOfBirth' in patch) payload.date_of_birth = patch.dateOfBirth || null;
     if ('estimatedAge' in patch) payload.estimated_age = patch.estimatedAge ?? null;
     if ('isDeceased' in patch) payload.is_deceased = patch.isDeceased;
