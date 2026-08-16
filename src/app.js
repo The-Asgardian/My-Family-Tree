@@ -10,6 +10,7 @@ import {
   structuredNameFor
 } from './lib/person-utils.js';
 import { relationshipWarnings } from './lib/relationship-utils.js';
+import { buildFamilySummary } from './lib/family-summary.js?v=20260816-family-summary-1';
 import { PortraitCropper } from './lib/portrait-cropper.js?v=20260816-photo-free-canvas-1';
 import { buildAutomaticNames } from './lib/surname-utils.js';
 import {
@@ -258,7 +259,6 @@ function relationshipPeople(personId, type, direction = 'either') {
 function getParents(id) { return relationshipPeople(id, 'parent_child', 'parents'); }
 function getChildren(id) { return relationshipPeople(id, 'parent_child', 'children'); }
 function getPartners(id) { return relationshipPeople(id, 'partner', 'either'); }
-function getExplicitSiblings(id) { return relationshipPeople(id, 'sibling', 'either'); }
 
 function applyAutomaticNames() {
   if (!state.tree) return;
@@ -274,13 +274,7 @@ function applyAutomaticNames() {
 }
 
 function getSiblings(id) {
-  const parentIds = getParents(id).map(p => p.id);
-  const inferred = state.tree.people.filter(person => {
-    if (person.id === id) return false;
-    const theirParents = getParents(person.id).map(p => p.id);
-    return theirParents.some(pid => parentIds.includes(pid));
-  });
-  return [...new Map([...getExplicitSiblings(id), ...inferred].map(person => [person.id, person])).values()];
+  return buildFamilySummary(state.tree.people, state.tree.relationships, id).siblings;
 }
 
 function ageFor(person) {
@@ -769,10 +763,11 @@ function renderDetails() {
     els.detailsContent.innerHTML = `<div class="panel-empty">${emptyCopy}</div>`;
     return;
   }
-  const parents = getParents(person.id);
-  const siblings = getSiblings(person.id);
-  const partners = getPartners(person.id);
-  const children = getChildren(person.id);
+  const { mothers, fathers, otherParents, siblings, partners, children } = buildFamilySummary(
+    state.tree.people,
+    state.tree.relationships,
+    person.id
+  );
   const photo = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="Portrait of ${escapeHtml(person.fullName)}">` : `<div class="detail-photo-placeholder">${escapeHtml(initials(person.fullName))}</div>`;
   const dob = formatDate(person.dateOfBirth, person.dateOfBirthPrecision) || 'Unknown';
   const dod = formatDate(person.dateOfDeath, person.dateOfDeathPrecision) || 'Unknown';
@@ -789,10 +784,12 @@ function renderDetails() {
       </div>
     </section>
     <section class="relationship-details">
-      <h3>Parents</h3><div class="relation-list">${miniPeople(parents) || '<span class="empty-label">Not added</span>'}</div>
+      <h3>Mother</h3><div class="relation-list">${miniPeople(mothers) || '<span class="empty-label">Not added</span>'}</div>
+      <h3>Father</h3><div class="relation-list">${miniPeople(fathers) || '<span class="empty-label">Not added</span>'}</div>
+      ${otherParents.length ? `<h3>Other parents</h3><div class="relation-list">${miniPeople(otherParents)}</div>` : ''}
       <h3>Siblings</h3><div class="relation-list">${miniPeople(siblings) || '<span class="empty-label">None added</span>'}</div>
-      <h3>Partners</h3><div class="relation-list">${miniPeople(partners) || (state.isEditor ? `<button class="add-inline" type="button" data-inline-add="partner">＋ Add partner</button>` : '<span class="empty-label">None added</span>')}</div>
       <h3>Children</h3><div class="relation-list">${miniPeople(children) || (state.isEditor ? `<button class="add-inline" type="button" data-inline-add="child">＋ Add child</button>` : '<span class="empty-label">None added</span>')}</div>
+      <h3>Partners</h3><div class="relation-list">${miniPeople(partners) || (state.isEditor ? `<button class="add-inline" type="button" data-inline-add="partner">＋ Add partner</button>` : '<span class="empty-label">None added</span>')}</div>
     </section>
     ${state.isEditor ? `<section class="profile-actions">
       <button class="primary-button" type="button" id="panelAddRelative">＋ Add relative</button>
