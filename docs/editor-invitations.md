@@ -1,19 +1,27 @@
-# Private editor invitations
+# Private family access
 
-The published tree stays publicly viewable, but all database and photo writes
-require an invited editor session. There is no sign-in screen or password.
+The published app is only a shell. Family data and private photos are returned
+only to the owner or a device which has claimed a private family link.
+
+## Roles
+
+- **Owner** signs in with a private Supabase email/password account, can edit,
+  and is the only person who can create family links.
+- **Editor** claims a one-use link and can edit until the owner-selected expiry
+  date. The expiry applies even after the link has been claimed.
+- **Viewer** claims a one-use link and has permanent read-only access on that
+  browser/device.
 
 ## How it works
 
-1. An existing editor creates a one-use link in the app. The first link can be
-   created in the Supabase SQL editor.
+1. The owner creates one-use links in the app.
 2. The link contains a 256-bit random token after `#invite=`. URL fragments are
    not sent to GitHub Pages or in normal HTTP referrer headers.
 3. The app silently calls Supabase anonymous sign-in, then claims the token with
-   `claim_editor_invite`.
+   `claim_family_invite`.
 4. The database atomically marks the token used and adds that Auth user to the
-   canonical tree as an editor. RLS then permits that user to add, edit, delete,
-   and manage photos.
+   canonical tree with the link's role. RLS checks the role and editor expiry
+   on every read or write.
 5. Supabase persists and refreshes the browser session. Clearing site data,
    signing out, or moving to another browser/device loses access; create a new
    invitation in that case.
@@ -21,17 +29,30 @@ require an invited editor session. There is no sign-in screen or password.
 The first browser to open and claim a link owns it. Send each link privately to
 one intended person and never reuse it.
 
-After the first editor claims access, the app can call the authenticated
-`create_editor_invite` RPC. The database checks that the current user already
-edits the canonical tree before returning a new link; no service-role key or
-other server secret is used by the browser.
+The app calls `create_family_invites`. The database requires the current user
+to be the owner before returning any raw link; no service-role key or other
+server secret is used by the browser.
 
-## Generate a link securely
+## Configure the owner
 
-Once a browser is already an editor, use the app's **Invite** button to create
-and copy a one-use link without leaving the tree.
+1. In **Supabase Dashboard → Authentication → Users**, create the private owner
+   email/password account. Do not expose a sign-up flow in the app.
+2. In **SQL Editor**, assign that existing account:
 
-For the first editor only, in **Supabase Dashboard → SQL Editor**, run:
+```sql
+select private.assign_family_owner('owner@example.com');
+```
+
+3. Open the app, choose **Settings → Owner sign in**, and use that account.
+
+## Generate links securely
+
+Use the owner's **Invite** button to create 1, 3, or 5 links. Choose temporary
+Editor access or permanent Viewer access, copy each link separately, and send
+it privately to one intended person.
+
+For emergency editor access from **Supabase Dashboard → SQL Editor**, the older
+admin-only helper remains available:
 
 ```sql
 select * from private.create_editor_invite(interval '14 days');
@@ -42,12 +63,12 @@ returned only by this call; the database stores its SHA-256 hash. Do not put the
 link in source control, logs, issues, or group messages. The function accepts a
 lifetime from 5 minutes to 90 days.
 
-Anonymous sign-ins must be enabled in **Authentication → Providers → Anonymous**
+Anonymous sign-ins must be enabled in **Authentication → Sign In / Providers → Anonymous**
 when the migration is deployed. `supabase/config.toml` enables it for local
 development, but hosted Auth settings are configured separately.
 
 ## Storage enforcement
 
 The `family-photos` bucket accepts only `image/webp` and rejects objects above
-2 MiB at the Storage API. Its read policies remain public for the one canonical
-tree, while insert, update, and delete policies require editor membership.
+2 MiB at the Storage API. Reads require family membership; insert, update, and
+delete policies require unexpired editor or owner access.

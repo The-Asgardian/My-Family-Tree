@@ -30,6 +30,16 @@ test('legacy full names remain editable without a data rewrite', () => {
   });
 });
 
+test('historical dates can store only what the family knows', () => {
+  assert.equal(parseDateInput('', 'unknown'), null);
+  assert.equal(parseDateInput('1911', 'year'), '1911-01-01');
+  assert.equal(parseDateInput('02/1920', 'month'), '1920-02-01');
+  assert.equal(formatDate('1911-01-01', 'year'), '1911');
+  assert.equal(formatDate('1920-02-01', 'month'), '02/1920');
+  assert.equal(formatDate(null, 'unknown'), 'Unknown');
+  assert.throws(() => parseDateInput('13/1920', 'month'), /valid month/);
+});
+
 test('siblings sort oldest to youngest with deterministic fallbacks', () => {
   const order = new Map([['unknown', 2], ['older', 1], ['younger', 0]]);
   const people = [

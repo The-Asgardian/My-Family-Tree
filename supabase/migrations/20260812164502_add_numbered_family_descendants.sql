@@ -1,0 +1,3 @@
+-- Hosted data-only migration retained in the migration sequence.
+-- Family records are deliberately not copied into source control or local
+-- resets; production family data remains in Supabase and is backed up there.

@@ -3,29 +3,35 @@ import { config } from './config.js';
 import {
   comparePeopleByAge,
   composeFullName,
+  dateInputValue,
   formatDate,
   middleNameForGender,
   parseDateInput,
   structuredNameFor
 } from './lib/person-utils.js';
+import { relationshipWarnings } from './lib/relationship-utils.js';
 import { optimisePhoto } from './lib/photo-utils.js';
 import { buildAutomaticNames } from './lib/surname-utils.js';
 import {
-  claimEditorInvitation,
+  claimFamilyInvitation,
   clearInvitationFromAddress,
-  createEditorInvitation,
-  getEditorAccess,
-  invitationTokenFromUrl
+  createFamilyInvitations,
+  getFamilyAccess,
+  invitationTokenFromUrl,
+  signInOwner,
+  signOutFamilyAccess
 } from './services/editor-access-service.js';
 
-const CARD_W = 136;
-const CARD_H = 192;
-const PHOTO_H = 142;
-const PARTNER_GAP = 58;
-const GROUP_GAP = 72;
-const ROW_GAP = 150;
+const CARD_W = 176;
+const CARD_H = 108;
+const PHOTO_H = 58;
+const PARTNER_GAP = 42;
+const GROUP_GAP = 76;
+const ROW_GAP = 118;
 const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 1.65;
+const THEME_STORAGE_KEY = 'family-tree-theme';
+const PREFERENCES_STORAGE_KEY = 'family-tree-preferences';
 
 const state = {
   tree: null,
@@ -47,8 +53,12 @@ const state = {
   photoFile: null,
   photoPreviewUrl: '',
   photoProcessing: null,
+  relationshipWarningConfirmed: false,
   showGenerationBands: true,
+  autoArrangeAfterChanges: true,
   automaticNames: new Map(),
+  accessRole: null,
+  accessExpiresAt: null,
   isEditor: false,
   treeConnected: false,
   stopTreeSubscription: null,
@@ -58,6 +68,9 @@ const state = {
 let resizeTimer = null;
 
 const els = {
+  app: document.querySelector('#app'),
+  accessGate: document.querySelector('#accessGate'),
+  gateOwnerLoginButton: document.querySelector('#gateOwnerLoginButton'),
   familyName: document.querySelector('#familyName'),
   viewport: document.querySelector('#treeViewport'),
   stage: document.querySelector('#treeStage'),
@@ -85,14 +98,19 @@ const els = {
   confirmDeleteButton: document.querySelector('#confirmDeleteButton'),
   deleteFormStatus: document.querySelector('#deleteFormStatus'),
   personForm: document.querySelector('#personForm'),
+  personSubmit: document.querySelector('#personForm button[type="submit"]'),
   personFirstName: document.querySelector('#personFirstNameInput'),
   personMiddleName: document.querySelector('#personMiddleNameInput'),
   personLastName: document.querySelector('#personLastNameInput'),
   personGender: document.querySelector('#personGenderInput'),
   personDob: document.querySelector('#personDobInput'),
+  personDobPrecision: document.querySelector('#personDobPrecisionInput'),
+  personDobValueLabel: document.querySelector('#personDobValueLabel'),
   personAge: document.querySelector('#personAgeInput'),
   personLiving: document.querySelector('#personLivingInput'),
   personDeath: document.querySelector('#personDeathInput'),
+  personDeathPrecision: document.querySelector('#personDeathPrecisionInput'),
+  personDeathValueLabel: document.querySelector('#personDeathValueLabel'),
   personBirthplace: document.querySelector('#personBirthplaceInput'),
   personAbout: document.querySelector('#personAboutInput'),
   personPhoto: document.querySelector('#personPhotoInput'),
@@ -101,17 +119,117 @@ const els = {
   surnameHint: document.querySelector('#surnameHint'),
   toastRegion: document.querySelector('#toastRegion'),
   connectionStatus: document.querySelector('#connectionStatus'),
+  accessRoleBadge: document.querySelector('#accessRoleBadge'),
+  themeToggleButton: document.querySelector('#themeToggleButton'),
+  settingsButton: document.querySelector('#settingsButton'),
   addPersonButton: document.querySelector('#addPersonButton'),
   inviteEditorButton: document.querySelector('#inviteEditorButton'),
   inviteEditorDialog: document.querySelector('#inviteEditorDialog'),
   inviteEditorForm: document.querySelector('#inviteEditorForm'),
   inviteDuration: document.querySelector('#inviteDurationInput'),
+  inviteDurationField: document.querySelector('#inviteDurationField'),
+  inviteRole: document.querySelector('#inviteRoleInput'),
+  inviteCount: document.querySelector('#inviteCountInput'),
   createInviteButton: document.querySelector('#createInviteButton'),
   inviteResult: document.querySelector('#inviteResult'),
-  inviteLinkOutput: document.querySelector('#inviteLinkOutput'),
-  copyInviteButton: document.querySelector('#copyInviteButton'),
-  inviteFormStatus: document.querySelector('#inviteFormStatus')
+  inviteLinksOutput: document.querySelector('#inviteLinksOutput'),
+  inviteFormStatus: document.querySelector('#inviteFormStatus'),
+  relationshipOptions: document.querySelector('#relationshipOptions'),
+  coParentField: document.querySelector('#coParentField'),
+  coParent: document.querySelector('#coParentInput'),
+  sharedParentField: document.querySelector('#sharedParentField'),
+  sharedParent: document.querySelector('#sharedParentInput'),
+  sharedParentLabel: document.querySelector('#sharedParentLabel'),
+  ownerLoginDialog: document.querySelector('#ownerLoginDialog'),
+  ownerLoginForm: document.querySelector('#ownerLoginForm'),
+  ownerEmail: document.querySelector('#ownerEmailInput'),
+  ownerPassword: document.querySelector('#ownerPasswordInput'),
+  ownerLoginSubmit: document.querySelector('#ownerLoginSubmit'),
+  ownerLoginStatus: document.querySelector('#ownerLoginStatus'),
+  settingsDialog: document.querySelector('#settingsDialog'),
+  settingsTheme: document.querySelector('#settingsThemeInput'),
+  settingsGenerationBands: document.querySelector('#settingsGenerationBandsInput'),
+  settingsAutoArrange: document.querySelector('#settingsAutoArrangeInput'),
+  settingsAccessSummary: document.querySelector('#settingsAccessSummary'),
+  settingsOwnerLoginButton: document.querySelector('#settingsOwnerLoginButton'),
+  settingsSignOutButton: document.querySelector('#settingsSignOutButton')
 };
+
+function loadPreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PREFERENCES_STORAGE_KEY) || '{}');
+    state.showGenerationBands = saved.showGenerationBands !== false;
+    state.autoArrangeAfterChanges = saved.autoArrangeAfterChanges !== false;
+  } catch {}
+}
+
+function savePreferences() {
+  try {
+    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify({
+      showGenerationBands: state.showGenerationBands,
+      autoArrangeAfterChanges: state.autoArrangeAfterChanges
+    }));
+  } catch {}
+}
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+}
+
+function applyTheme(theme, persist = false) {
+  const nextTheme = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = nextTheme;
+  if (persist) {
+    try { localStorage.setItem(THEME_STORAGE_KEY, nextTheme); } catch {}
+  }
+
+  const darkModeActive = nextTheme === 'dark';
+  const nextMode = darkModeActive ? 'light' : 'dark';
+  els.themeToggleButton.querySelector('span').textContent = darkModeActive ? '☀' : '☾';
+  els.themeToggleButton.setAttribute('aria-label', `Switch to ${nextMode} mode`);
+  els.themeToggleButton.title = `Switch to ${nextMode} mode`;
+  document.querySelector('meta[name="theme-color"]').content = darkModeActive ? '#101722' : '#f3f6fb';
+  if (els.settingsTheme) els.settingsTheme.value = nextTheme;
+}
+
+function applyAccess(access = {}) {
+  state.accessRole = access.role || null;
+  state.accessExpiresAt = access.expiresAt || null;
+  state.isEditor = state.accessRole === 'owner' || state.accessRole === 'editor';
+  const roleLabel = state.accessRole ? `${state.accessRole[0].toUpperCase()}${state.accessRole.slice(1)}` : '';
+  els.accessRoleBadge.hidden = !state.accessRole;
+  els.accessRoleBadge.textContent = roleLabel;
+  els.app.classList.toggle('access-locked', !state.accessRole);
+  els.accessGate.hidden = Boolean(state.accessRole);
+  els.settingsOwnerLoginButton.hidden = state.accessRole === 'owner';
+  els.settingsSignOutButton.hidden = !state.accessRole;
+  const expiry = state.accessExpiresAt ? new Date(state.accessExpiresAt).toLocaleDateString('en-GB') : null;
+  els.settingsAccessSummary.textContent = state.accessRole
+    ? `${roleLabel} access${expiry ? ` until ${expiry}` : ' on this device'}.`
+    : 'This device does not have family access.';
+}
+
+function openOwnerLogin() {
+  els.ownerLoginForm.reset();
+  els.ownerLoginStatus.textContent = '';
+  els.ownerLoginDialog.showModal();
+  requestAnimationFrame(() => els.ownerEmail.focus());
+}
+
+function updateDateControl(precisionElement, inputElement, labelElement, label) {
+  const precision = precisionElement.value;
+  const settings = {
+    unknown: { placeholder: 'Unknown', inputMode: 'text' },
+    year: { placeholder: 'yyyy', inputMode: 'numeric' },
+    month: { placeholder: 'mm/yyyy', inputMode: 'numeric' },
+    day: { placeholder: 'dd/mm/yyyy', inputMode: 'numeric' }
+  }[precision];
+  inputElement.disabled = precision === 'unknown';
+  inputElement.placeholder = settings.placeholder;
+  inputElement.inputMode = settings.inputMode;
+  if (precision === 'unknown') inputElement.value = '';
+  labelElement.firstChild.textContent = `${label} `;
+}
 
 function initials(name = '') {
   return name.trim().split(/\s+/).slice(0, 2).map(v => v[0] || '').join('').toUpperCase() || '?';
@@ -138,6 +256,7 @@ function relationshipPeople(personId, type, direction = 'either') {
 function getParents(id) { return relationshipPeople(id, 'parent_child', 'parents'); }
 function getChildren(id) { return relationshipPeople(id, 'parent_child', 'children'); }
 function getPartners(id) { return relationshipPeople(id, 'partner', 'either'); }
+function getExplicitSiblings(id) { return relationshipPeople(id, 'sibling', 'either'); }
 
 function applyAutomaticNames() {
   if (!state.tree) return;
@@ -154,12 +273,12 @@ function applyAutomaticNames() {
 
 function getSiblings(id) {
   const parentIds = getParents(id).map(p => p.id);
-  if (!parentIds.length) return [];
-  return state.tree.people.filter(person => {
+  const inferred = state.tree.people.filter(person => {
     if (person.id === id) return false;
     const theirParents = getParents(person.id).map(p => p.id);
     return theirParents.some(pid => parentIds.includes(pid));
   });
+  return [...new Map([...getExplicitSiblings(id), ...inferred].map(person => [person.id, person])).values()];
 }
 
 function ageFor(person) {
@@ -178,9 +297,9 @@ function ageFor(person) {
 }
 
 function formattedAge(person) {
-  const birthDate = formatDate(person.dateOfBirth);
+  const birthDate = formatDate(person.dateOfBirth, person.dateOfBirthPrecision);
   if (person.isDeceased && person.dateOfBirth) {
-    return `${birthDate}–${formatDate(person.dateOfDeath) || '—'}`;
+    return `${birthDate}–${formatDate(person.dateOfDeath, person.dateOfDeathPrecision) || '—'}`;
   }
   const age = ageFor(person);
   if (birthDate) return age === null ? birthDate : `${birthDate} · Age ${age}`;
@@ -205,13 +324,24 @@ function determineGenerations() {
 
   for (const person of people) if (!gen.has(person.id)) gen.set(person.id, 0);
 
-  // Keep partners on the same visual generation, preferring the deeper known generation.
-  for (let pass = 0; pass < 3; pass += 1) {
-    for (const rel of state.tree.relationships.filter(r => r.type === 'partner')) {
+  // Reconcile same-generation links and descendants after new ancestors are
+  // added. The database prevents ancestry cycles, so this converges quickly.
+  for (let pass = 0; pass < people.length + 1; pass += 1) {
+    let changed = false;
+    for (const rel of state.tree.relationships.filter(r => r.type === 'partner' || r.type === 'sibling')) {
       const g = Math.max(gen.get(rel.personAId) ?? 0, gen.get(rel.personBId) ?? 0);
+      if (gen.get(rel.personAId) !== g || gen.get(rel.personBId) !== g) changed = true;
       gen.set(rel.personAId, g);
       gen.set(rel.personBId, g);
     }
+    for (const rel of state.tree.relationships.filter(r => r.type === 'parent_child')) {
+      const next = (gen.get(rel.personAId) ?? 0) + 1;
+      if ((gen.get(rel.personBId) ?? 0) < next) {
+        gen.set(rel.personBId, next);
+        changed = true;
+      }
+    }
+    if (!changed) break;
   }
   return gen;
 }
@@ -239,14 +369,26 @@ function makeGroups(generationPeople) {
   const groups = [];
   for (const person of generationPeople) {
     if (used.has(person.id)) continue;
-    const partner = getPartners(person.id).find(p => ids.has(p.id) && !used.has(p.id));
-    if (partner) {
-      groups.push([person, partner]);
-      used.add(person.id); used.add(partner.id);
-    } else {
-      groups.push([person]);
-      used.add(person.id);
+    const component = [];
+    const queue = [person];
+    while (queue.length) {
+      const member = queue.shift();
+      if (used.has(member.id) || !ids.has(member.id)) continue;
+      used.add(member.id);
+      component.push(member);
+      getPartners(member.id).forEach(partner => {
+        if (ids.has(partner.id) && !used.has(partner.id)) queue.push(partner);
+      });
     }
+    if (component.length === 3) {
+      const centre = component.find(member => getPartners(member.id).filter(partner => component.some(item => item.id === partner.id)).length === 2);
+      if (centre) {
+        const sides = component.filter(member => member.id !== centre.id).sort(comparePeopleByAge);
+        groups.push([sides[0], centre, sides[1]]);
+        continue;
+      }
+    }
+    groups.push(component.sort(comparePeopleByAge));
   }
   return groups;
 }
@@ -432,10 +574,11 @@ function renderGenerationBands(rows, topPadding, stageHeight) {
 function nodeMarkup(person) {
   const photo = person.photoUrl
     ? `<img src="${escapeHtml(person.photoUrl)}" alt="" loading="lazy">`
-    : `<div class="node-placeholder"><strong>${escapeHtml(initials(person.fullName))}</strong><small>No photo</small></div>`;
+    : `<div class="node-placeholder"><strong>${escapeHtml(initials(person.fullName))}</strong></div>`;
+  const lifeLabel = person.isDeceased ? 'In memory' : 'Family member';
   return `
     <div class="node-photo">${photo}</div>
-    <div class="node-meta"><strong>${escapeHtml(person.fullName)}</strong><span>${escapeHtml(formattedAge(person))}</span></div>
+    <div class="node-meta"><small>${escapeHtml(lifeLabel)}</small><strong>${escapeHtml(person.fullName)}</strong><span>${escapeHtml(formattedAge(person))}</span></div>
     ${state.isEditor ? `<button class="node-add" type="button" aria-label="Add relative to ${escapeHtml(person.fullName)}" data-add-person="${person.id}">＋</button>` : ''}
   `;
 }
@@ -493,7 +636,7 @@ function renderTree() {
     const pos = state.positions.get(person.id);
     if (!pos) continue;
     const card = document.createElement('article');
-    card.className = `person-node${person.id === state.selectedId ? ' selected' : ''}`;
+    card.className = `person-node gender-${person.gender || 'unknown'}${person.id === state.selectedId ? ' selected' : ''}`;
     card.dataset.personId = person.id;
     card.style.left = `${pos.x}px`;
     card.style.top = `${pos.y}px`;
@@ -549,6 +692,13 @@ function drawRelationships(visible) {
       const right = a.x < b.x ? b : a;
       const y = left.y + PHOTO_H * 0.64;
       paths.push(`<path class="partner-path" d="M ${left.x + CARD_W} ${y} L ${right.x} ${y}"/>`);
+    } else if (rel.type === 'sibling') {
+      const left = a.x < b.x ? a : b;
+      const right = a.x < b.x ? b : a;
+      const leftX = left.x + CARD_W / 2;
+      const rightX = right.x + CARD_W / 2;
+      const y = Math.min(left.y, right.y) - 18;
+      paths.push(`<path class="sibling-path" d="M ${leftX} ${left.y} V ${y} H ${rightX} V ${right.y}"/>`);
     }
   }
 
@@ -609,6 +759,7 @@ function miniPeople(people) {
 
 function renderDetails() {
   const person = personById(state.selectedId);
+  els.mobileDetailsButton.hidden = !person || (window.innerWidth >= 700 && window.innerHeight >= 520);
   if (!person) {
     const emptyCopy = state.tree?.people.length === 0
       ? '<h2>Add the first person</h2><p>This person becomes the root from which every relative is connected.</p>'
@@ -621,25 +772,31 @@ function renderDetails() {
   const partners = getPartners(person.id);
   const children = getChildren(person.id);
   const photo = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="Portrait of ${escapeHtml(person.fullName)}">` : `<div class="detail-photo-placeholder">${escapeHtml(initials(person.fullName))}</div>`;
-  const dob = formatDate(person.dateOfBirth) || 'Not added';
-  const dod = formatDate(person.dateOfDeath) || 'Not added';
+  const dob = formatDate(person.dateOfBirth, person.dateOfBirthPrecision) || 'Unknown';
+  const dod = formatDate(person.dateOfDeath, person.dateOfDeathPrecision) || 'Unknown';
+  const genderLabel = person.gender === 'male' ? 'Male' : person.gender === 'female' ? 'Female' : 'Not added';
 
   els.detailsContent.innerHTML = `
     <section class="profile-hero">
       <div class="detail-photo">${photo}</div>
-      <div class="profile-summary"><h1>${escapeHtml(person.fullName)}</h1><p>${escapeHtml(formattedAge(person))}</p></div>
+      <div class="profile-summary">
+        <span class="profile-status">${person.isDeceased ? 'In memory' : 'Living'}</span>
+        <h1>${escapeHtml(person.fullName)}</h1>
+        <p>${escapeHtml(formattedAge(person))}</p>
+        <span class="profile-gender">${escapeHtml(genderLabel)}</span>
+      </div>
     </section>
     <section class="relationship-details">
       <h3>Parents</h3><div class="relation-list">${miniPeople(parents) || '<span class="empty-label">Not added</span>'}</div>
       <h3>Siblings</h3><div class="relation-list">${miniPeople(siblings) || '<span class="empty-label">None added</span>'}</div>
-      <h3>Partner</h3><div class="relation-list">${miniPeople(partners) || (state.isEditor ? `<button class="add-inline" type="button" data-inline-add="partner">＋ Add partner</button>` : '<span class="empty-label">None added</span>')}</div>
+      <h3>Partners</h3><div class="relation-list">${miniPeople(partners) || (state.isEditor ? `<button class="add-inline" type="button" data-inline-add="partner">＋ Add partner</button>` : '<span class="empty-label">None added</span>')}</div>
       <h3>Children</h3><div class="relation-list">${miniPeople(children) || (state.isEditor ? `<button class="add-inline" type="button" data-inline-add="child">＋ Add child</button>` : '<span class="empty-label">None added</span>')}</div>
     </section>
     ${state.isEditor ? `<section class="profile-actions">
       <button class="primary-button" type="button" id="panelAddRelative">＋ Add relative</button>
       <button class="secondary-button" type="button" id="panelEditPerson">✎ Edit person</button>
       <button class="danger-outline-button profile-delete-button" type="button" id="panelDeletePerson">Delete person</button>
-    </section>` : '<div class="view-only-note">View only · an invitation link is required to edit</div>'}
+    </section>` : '<div class="view-only-note">View only · this device has private viewer access</div>'}
     <section class="facts-grid">
       <div><span>Last name</span><strong>${escapeHtml(person.lastName || config.defaultFamilySurname)}<small class="surname-source">${escapeHtml(person.surnameSource || `${config.defaultFamilySurname} family root`)}</small></strong></div>
       <div><span>Date of birth</span><strong>${escapeHtml(dob)}</strong></div>
@@ -763,6 +920,15 @@ function automaticSurnameForForm() {
   return defaultResult;
 }
 
+function showUsefulInitialView() {
+  if (window.innerWidth < 700 || window.innerHeight < 520) {
+    state.zoom = Math.max(0.58, state.zoom);
+    centreOnSelected();
+  } else {
+    fitTree();
+  }
+}
+
 function updateAutomaticNameFields(forceSurname = false) {
   els.personMiddleName.value = middleNameForGender(els.personGender.value);
   const automatic = automaticSurnameForForm();
@@ -801,7 +967,7 @@ async function loadSingleTree() {
   state.treeConnected = true;
   state.selectedId = tree.people.some(person => person.id === state.selectedId) ? state.selectedId : tree.people[0]?.id || null;
   renderAll();
-  requestAnimationFrame(fitTree);
+  requestAnimationFrame(showUsefulInitialView);
   setSyncedStatus();
   state.stopTreeSubscription = await familyService.subscribeToTree(tree.id, () => {
     clearTimeout(state.realtimeReloadTimer);
@@ -832,6 +998,24 @@ function openRelationshipDialog(anchorId) {
   els.relationshipDialog.showModal();
 }
 
+function configureRelationshipOptions() {
+  const anchor = personById(state.addAnchorId);
+  const partners = anchor ? getPartners(anchor.id) : [];
+  const siblings = anchor ? getSiblings(anchor.id) : [];
+  const showCoParent = state.addRelationship === 'child' && partners.length > 0;
+  const showSharedParent = state.addRelationship === 'parent' && siblings.length > 0;
+  els.relationshipOptions.hidden = !showCoParent && !showSharedParent;
+  els.coParentField.hidden = !showCoParent;
+  els.sharedParentField.hidden = !showSharedParent;
+  els.coParent.innerHTML = '<option value="">No other parent</option>' + partners
+    .map(partner => `<option value="${partner.id}">${escapeHtml(partner.fullName)}</option>`).join('');
+  if (partners.length === 1) els.coParent.value = partners[0].id;
+  els.sharedParent.checked = true;
+  if (showSharedParent) {
+    els.sharedParentLabel.textContent = `Also connect this parent to ${siblings.length === 1 ? siblings[0].fullName : `${siblings.length} siblings`}`;
+  }
+}
+
 function openPersonDialog() {
   if (!requireEditor()) return;
   const anchor = personById(state.addAnchorId);
@@ -839,12 +1023,19 @@ function openPersonDialog() {
   clearPhotoPreview();
   state.photoFile = null;
   state.photoProcessing = null;
+  state.relationshipWarningConfirmed = false;
+  els.personSubmit.textContent = 'Save';
   els.personDialogTitle.textContent = state.addRelationship ? `Add a ${state.addRelationship}` : 'Add person';
   els.personDialogSubtitle.textContent = anchor ? `This person will be connected to ${anchor.fullName}.` : 'Add their basic details. You can add more later.';
   els.personForm.reset();
   state.lastNameEdited = false;
   els.personLiving.checked = true;
   els.personDeath.disabled = true;
+  els.personDobPrecision.value = 'unknown';
+  els.personDeathPrecision.value = 'unknown';
+  updateDateControl(els.personDobPrecision, els.personDob, els.personDobValueLabel, 'Date of birth');
+  updateDateControl(els.personDeathPrecision, els.personDeath, els.personDeathValueLabel, 'Date of death');
+  configureRelationshipOptions();
   updateAutomaticNameFields(true);
   els.photoPreview.innerHTML = '<span>＋</span><small>Add photo</small>';
   els.formStatus.textContent = '';
@@ -859,6 +1050,8 @@ function openEditDialog(personId) {
   state.editingId = personId;
   state.addAnchorId = null;
   state.addRelationship = null;
+  state.relationshipWarningConfirmed = false;
+  els.personSubmit.textContent = 'Save';
   els.personDialogTitle.textContent = 'Edit person';
   els.personDialogSubtitle.textContent = `Update ${person.fullName}'s profile.`;
   const name = structuredNameFor(person);
@@ -867,11 +1060,16 @@ function openEditDialog(personId) {
   els.personGender.value = name.gender;
   state.lastNameEdited = true;
   updateAutomaticNameFields();
-  els.personDob.value = formatDate(person.dateOfBirth);
+  els.personDobPrecision.value = person.dateOfBirthPrecision || (person.dateOfBirth ? 'day' : 'unknown');
+  els.personDob.value = dateInputValue(person.dateOfBirth, els.personDobPrecision.value);
   els.personAge.value = person.estimatedAge ?? '';
   els.personLiving.checked = !person.isDeceased;
-  els.personDeath.value = formatDate(person.dateOfDeath);
+  els.personDeathPrecision.value = person.dateOfDeathPrecision || (person.dateOfDeath ? 'day' : 'unknown');
+  els.personDeath.value = dateInputValue(person.dateOfDeath, els.personDeathPrecision.value);
   els.personDeath.disabled = els.personLiving.checked;
+  updateDateControl(els.personDobPrecision, els.personDob, els.personDobValueLabel, 'Date of birth');
+  updateDateControl(els.personDeathPrecision, els.personDeath, els.personDeathValueLabel, 'Date of death');
+  els.relationshipOptions.hidden = true;
   els.personBirthplace.value = person.birthplace || '';
   els.personAbout.value = person.about || '';
   clearPhotoPreview();
@@ -889,7 +1087,47 @@ function requireEditor() {
 }
 
 function setSyncedStatus() {
-  setConnectionStatus(state.isEditor ? 'Synced · Editor' : 'Synced · View only', 'connected');
+  const label = state.accessRole === 'owner' ? 'Owner' : state.accessRole === 'editor' ? 'Editor' : 'Viewer';
+  setConnectionStatus(`Synced · ${label}`, 'connected');
+}
+
+async function ownerLoginFromForm(event) {
+  event.preventDefault();
+  els.ownerLoginSubmit.disabled = true;
+  els.ownerLoginStatus.textContent = 'Signing in…';
+  try {
+    const access = await signInOwner(els.ownerEmail.value, els.ownerPassword.value);
+    applyAccess(access);
+    els.ownerLoginDialog.close();
+    await loadSingleTree();
+    toast('Owner access restored');
+  } catch (error) {
+    console.error(error);
+    els.ownerLoginStatus.textContent = error?.message || 'Unable to sign in.';
+  } finally {
+    els.ownerLoginSubmit.disabled = false;
+    els.ownerPassword.value = '';
+  }
+}
+
+async function signOutCurrentAccess() {
+  try {
+    await signOutFamilyAccess();
+    applyAccess({ role: null });
+    clearTreeView();
+    els.settingsDialog.close();
+    setConnectionStatus('Private', 'waiting');
+    toast('Signed out on this device');
+  } catch (error) {
+    toast(error?.message || 'Unable to sign out.');
+  }
+}
+
+function openSettings() {
+  els.settingsTheme.value = currentTheme();
+  els.settingsGenerationBands.checked = state.showGenerationBands;
+  els.settingsAutoArrange.checked = state.autoArrangeAfterChanges;
+  els.settingsDialog.showModal();
 }
 
 function openDeleteDialog(personId) {
@@ -951,8 +1189,10 @@ async function savePersonFromForm(event) {
     const gender = els.personGender.value;
     const fullName = composeFullName(firstName, gender, lastName);
     if (!firstName || !gender || !fullName) throw new Error('Add a first name and choose Male or Female.');
-    const dateOfBirth = parseDateInput(els.personDob.value);
-    const dateOfDeath = els.personLiving.checked ? null : parseDateInput(els.personDeath.value);
+    const dateOfBirthPrecision = els.personDobPrecision.value;
+    const dateOfDeathPrecision = els.personLiving.checked ? 'unknown' : els.personDeathPrecision.value;
+    const dateOfBirth = parseDateInput(els.personDob.value, dateOfBirthPrecision);
+    const dateOfDeath = els.personLiving.checked ? null : parseDateInput(els.personDeath.value, dateOfDeathPrecision);
     if (dateOfBirth && dateOfDeath && dateOfDeath < dateOfBirth) throw new Error('Date of death cannot be before date of birth.');
     const payload = {
       fullName,
@@ -960,12 +1200,30 @@ async function savePersonFromForm(event) {
       lastName,
       gender,
       dateOfBirth,
+      dateOfBirthPrecision,
       estimatedAge: els.personAge.value ? Number(els.personAge.value) : null,
       isDeceased: !els.personLiving.checked,
       dateOfDeath,
+      dateOfDeathPrecision,
       birthplace: els.personBirthplace.value.trim(),
       about: els.personAbout.value.trim()
     };
+
+    if (!state.editingId && state.addAnchorId && state.addRelationship) {
+      const anchor = personById(state.addAnchorId);
+      const warnings = relationshipWarnings({
+        anchor,
+        relative: payload,
+        relationship: state.addRelationship,
+        existingParents: getParents(state.addAnchorId)
+      });
+      if (warnings.length && !state.relationshipWarningConfirmed) {
+        state.relationshipWarningConfirmed = true;
+        els.formStatus.textContent = `${warnings.join(' ')} Review this, then choose Save anyway.`;
+        els.personSubmit.textContent = 'Save anyway';
+        return;
+      }
+    }
 
     let photoWarning = '';
 
@@ -1015,7 +1273,7 @@ async function savePersonFromForm(event) {
     }
     els.personDialog.close();
     renderAll();
-    requestAnimationFrame(() => centreOnSelected());
+    requestAnimationFrame(() => state.autoArrangeAfterChanges ? fitTree() : centreOnSelected());
     if (photoWarning) toast(photoWarning);
   } catch (error) {
     els.formStatus.textContent = error?.message || 'Unable to save. Please try again.';
@@ -1026,13 +1284,23 @@ async function addRelationshipForNewPerson(anchorId, newId, relationship) {
   const make = (type, personAId, personBId) => familyService.createRelationship(state.tree.id, { type, personAId, personBId });
   if (relationship === 'parent') {
     const rel = await make('parent_child', newId, anchorId); state.tree.relationships.push(rel);
+    if (els.sharedParent.checked) {
+      for (const sibling of getSiblings(anchorId)) {
+        const alreadyConnected = state.tree.relationships.some(item => item.type === 'parent_child' && item.personAId === newId && item.personBId === sibling.id);
+        if (!alreadyConnected) {
+          const shared = await make('parent_child', newId, sibling.id);
+          state.tree.relationships.push(shared);
+        }
+      }
+    }
   } else if (relationship === 'child') {
     const rel = await make('parent_child', anchorId, newId); state.tree.relationships.push(rel);
-    const partner = getPartners(anchorId)[0];
+    const partner = personById(els.coParent.value);
     if (partner) { const second = await make('parent_child', partner.id, newId); state.tree.relationships.push(second); }
   } else if (relationship === 'partner') {
     const rel = await make('partner', anchorId, newId); state.tree.relationships.push(rel);
   } else if (relationship === 'sibling') {
+    const sibling = await make('sibling', anchorId, newId); state.tree.relationships.push(sibling);
     const parents = getParents(anchorId);
     for (const parent of parents) { const rel = await make('parent_child', parent.id, newId); state.tree.relationships.push(rel); }
   }
@@ -1075,22 +1343,32 @@ function renderAll() {
   applyAutomaticNames();
   els.familyName.textContent = state.tree?.name || 'Family Tree';
   els.addPersonButton.hidden = !state.isEditor;
-  els.inviteEditorButton.hidden = !state.isEditor;
+  els.inviteEditorButton.hidden = state.accessRole !== 'owner';
   renderTree();
   renderDetails();
 }
 
 async function createInvitationFromForm(event) {
   event.preventDefault();
-  if (!requireEditor()) return;
+  if (state.accessRole !== 'owner') {
+    toast('Only the owner can create private links.');
+    return;
+  }
+  const requestedCount = Number(els.inviteCount.value);
+  const inviteCount = Number.isInteger(requestedCount) ? Math.min(5, Math.max(1, requestedCount)) : 1;
+  const inviteRole = els.inviteRole.value;
   els.createInviteButton.disabled = true;
   els.inviteResult.hidden = true;
-  els.inviteFormStatus.textContent = 'Creating a secure one-use link…';
+  els.inviteLinksOutput.replaceChildren();
   try {
-    const invitation = await createEditorInvitation(Number(els.inviteDuration.value));
-    els.inviteLinkOutput.value = invitation.inviteUrl;
+    els.inviteFormStatus.textContent = `Creating ${inviteCount} secure ${inviteRole} ${inviteCount === 1 ? 'link' : 'links'}…`;
+    const invitations = await createFamilyInvitations(inviteRole, Number(els.inviteDuration.value), inviteCount);
+    renderInvitationLinks(invitations);
     els.inviteResult.hidden = false;
-    els.inviteFormStatus.textContent = `Expires ${new Date(invitation.expiresAt).toLocaleString()}. The first device to open it becomes the editor.`;
+    const expiry = invitations[0].expiresAt
+      ? `access ends ${new Date(invitations[0].expiresAt).toLocaleString('en-GB')}`
+      : 'viewer access does not expire';
+    els.inviteFormStatus.textContent = `${invitations.length} private ${inviteRole} ${invitations.length === 1 ? 'link' : 'links'} created · ${expiry}.`;
   } catch (error) {
     console.error(error);
     els.inviteFormStatus.textContent = error?.message || 'Unable to create an invitation.';
@@ -1099,19 +1377,61 @@ async function createInvitationFromForm(event) {
   }
 }
 
-async function copyInvitationLink() {
-  const link = els.inviteLinkOutput.value;
+function renderInvitationLinks(invitations) {
+  els.inviteLinksOutput.replaceChildren(...invitations.map((invitation, index) => {
+    const row = document.createElement('div');
+    row.className = 'invite-link-row';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.readOnly = true;
+    input.value = invitation.inviteUrl;
+    input.setAttribute('aria-label', `${invitation.role || 'Family'} link ${index + 1}`);
+    const button = document.createElement('button');
+    button.className = 'secondary-button';
+    button.type = 'button';
+    button.textContent = 'Copy';
+    button.addEventListener('click', () => copyInvitationLink(invitation.inviteUrl, input, button));
+    row.append(input, button);
+    return row;
+  }));
+}
+
+async function copyInvitationLink(link, input, button) {
   if (!link) return;
   try {
     await navigator.clipboard.writeText(link);
   } catch {
-    els.inviteLinkOutput.select();
+    input.select();
     document.execCommand('copy');
   }
+  button.textContent = 'Copied';
+  setTimeout(() => { button.textContent = 'Copy'; }, 1800);
   els.inviteFormStatus.textContent = 'Link copied. Send it privately to one person.';
 }
 
 function bindEvents() {
+  applyTheme(currentTheme());
+  els.themeToggleButton.addEventListener('click', () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true));
+  els.settingsButton.addEventListener('click', openSettings);
+  els.gateOwnerLoginButton.addEventListener('click', openOwnerLogin);
+  els.settingsOwnerLoginButton.addEventListener('click', () => {
+    els.settingsDialog.close();
+    openOwnerLogin();
+  });
+  els.settingsSignOutButton.addEventListener('click', signOutCurrentAccess);
+  els.ownerLoginForm.addEventListener('submit', ownerLoginFromForm);
+  els.settingsTheme.addEventListener('change', () => applyTheme(els.settingsTheme.value, true));
+  els.settingsGenerationBands.addEventListener('change', () => {
+    state.showGenerationBands = els.settingsGenerationBands.checked;
+    document.querySelector('#generationBandsButton').setAttribute('aria-pressed', String(state.showGenerationBands));
+    document.querySelector('#generationBandsButton').classList.toggle('active', state.showGenerationBands);
+    savePreferences();
+    renderTree();
+  });
+  els.settingsAutoArrange.addEventListener('change', () => {
+    state.autoArrangeAfterChanges = els.settingsAutoArrange.checked;
+    savePreferences();
+  });
   document.querySelectorAll('.view-tab').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
   document.querySelector('#addPersonButton').addEventListener('click', () => {
     if (!requireEditor() || !requireConnectedTree()) return;
@@ -1133,18 +1453,24 @@ function bindEvents() {
     state.showGenerationBands = !state.showGenerationBands;
     event.currentTarget.setAttribute('aria-pressed', String(state.showGenerationBands));
     event.currentTarget.classList.toggle('active', state.showGenerationBands);
+    els.settingsGenerationBands.checked = state.showGenerationBands;
+    savePreferences();
     renderTree();
     toast(`Generation colours ${state.showGenerationBands ? 'shown' : 'hidden'}`);
   });
   els.inviteEditorButton.addEventListener('click', () => {
-    if (!requireEditor()) return;
+    if (state.accessRole !== 'owner') return;
     els.inviteResult.hidden = true;
-    els.inviteLinkOutput.value = '';
+    els.inviteLinksOutput.replaceChildren();
     els.inviteFormStatus.textContent = '';
     els.inviteEditorDialog.showModal();
   });
   els.inviteEditorForm.addEventListener('submit', createInvitationFromForm);
-  els.copyInviteButton.addEventListener('click', copyInvitationLink);
+  els.inviteRole.addEventListener('change', () => {
+    const viewer = els.inviteRole.value === 'viewer';
+    els.inviteDurationField.hidden = viewer;
+    els.createInviteButton.textContent = `Create ${viewer ? 'viewer' : 'editor'} links`;
+  });
   document.querySelector('#centreButton').addEventListener('click', centreOnSelected);
   els.search.addEventListener('input', () => handleSearch(els.search.value));
   els.search.addEventListener('keydown', event => { if (event.key === 'Escape') { els.search.value = ''; els.searchResults.hidden = true; } });
@@ -1160,6 +1486,11 @@ function bindEvents() {
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => document.querySelector(`#${button.dataset.closeDialog}`).close()));
   els.personDialog.addEventListener('close', clearPhotoPreview);
   els.personForm.addEventListener('submit', savePersonFromForm);
+  els.personForm.addEventListener('input', event => {
+    if (event.target === els.personSubmit || !state.relationshipWarningConfirmed) return;
+    state.relationshipWarningConfirmed = false;
+    els.personSubmit.textContent = 'Save';
+  });
   els.personGender.addEventListener('change', () => updateAutomaticNameFields());
   els.personLastName.addEventListener('input', () => {
     state.lastNameEdited = true;
@@ -1178,8 +1509,17 @@ function bindEvents() {
     els.deleteFormStatus.textContent = '';
   });
   els.personLiving.addEventListener('change', () => {
-    els.personDeath.disabled = els.personLiving.checked;
-    if (els.personLiving.checked) els.personDeath.value = '';
+    if (els.personLiving.checked) {
+      els.personDeathPrecision.value = 'unknown';
+      els.personDeath.value = '';
+    }
+    updateDateControl(els.personDeathPrecision, els.personDeath, els.personDeathValueLabel, 'Date of death');
+    els.personDeath.disabled = els.personLiving.checked || els.personDeathPrecision.value === 'unknown';
+  });
+  els.personDobPrecision.addEventListener('change', () => updateDateControl(els.personDobPrecision, els.personDob, els.personDobValueLabel, 'Date of birth'));
+  els.personDeathPrecision.addEventListener('change', () => {
+    updateDateControl(els.personDeathPrecision, els.personDeath, els.personDeathValueLabel, 'Date of death');
+    els.personDeath.disabled = els.personLiving.checked || els.personDeathPrecision.value === 'unknown';
   });
   els.personPhoto.addEventListener('change', event => {
     const file = event.target.files?.[0];
@@ -1278,34 +1618,49 @@ function bindEvents() {
       els.mobileDetailsButton.hidden = !state.selectedId || (window.innerWidth >= 700 && window.innerHeight >= 520);
       if (!state.treeConnected || state.view === 'list') return;
       renderTree();
-      if (state.selectedId) centreOnSelected();
-      else fitTree();
+      if (window.innerWidth < 700 || window.innerHeight < 520) {
+        state.zoom = Math.max(0.58, state.zoom);
+        if (state.selectedId) centreOnSelected();
+        else fitTree();
+      } else {
+        fitTree();
+      }
     }, 140);
   });
 }
 
 async function init() {
+  loadPreferences();
   bindEvents();
+  document.querySelector('#generationBandsButton').setAttribute('aria-pressed', String(state.showGenerationBands));
+  document.querySelector('#generationBandsButton').classList.toggle('active', state.showGenerationBands);
+  els.settingsGenerationBands.checked = state.showGenerationBands;
+  els.settingsAutoArrange.checked = state.autoArrangeAfterChanges;
+  applyAccess({ role: null });
   clearTreeView();
   try {
     const invitationToken = invitationTokenFromUrl();
     if (invitationToken) {
-      setConnectionStatus('Unlocking editor…', 'waiting');
+      setConnectionStatus('Unlocking access…', 'waiting');
       try {
-        const access = await claimEditorInvitation(invitationToken);
-        state.isEditor = access.isEditor;
-        toast(access.alreadyEditor ? 'Editor access restored' : 'Private editor invitation accepted');
+        const access = await claimFamilyInvitation(invitationToken);
+        applyAccess(access);
+        toast(access.alreadyMember ? 'Family access restored' : `Private ${access.role} invitation accepted`);
       } catch (error) {
         console.error(error);
         toast('This invitation is invalid, expired, or has already been used.');
       } finally {
         clearInvitationFromAddress();
       }
+      if (!state.accessRole) applyAccess(await getFamilyAccess());
     } else {
-      const access = await getEditorAccess();
-      state.isEditor = access.isEditor;
+      applyAccess(await getFamilyAccess());
     }
-    await loadSingleTree();
+    if (state.accessRole) {
+      await loadSingleTree();
+    } else {
+      setConnectionStatus('Private', 'waiting');
+    }
   } catch (error) {
     console.error(error);
     clearTreeView();

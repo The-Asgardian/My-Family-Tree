@@ -14,9 +14,11 @@ function mapPerson(row, photoUrl = '') {
     storedGender: row.gender,
     preferredName: row.preferred_name,
     dateOfBirth: row.date_of_birth,
+    dateOfBirthPrecision: row.date_of_birth_precision || (row.date_of_birth ? 'day' : 'unknown'),
     estimatedAge: row.estimated_age,
     isDeceased: row.is_deceased,
     dateOfDeath: row.date_of_death,
+    dateOfDeathPrecision: row.date_of_death_precision || (row.date_of_death ? 'day' : 'unknown'),
     birthplace: row.birthplace,
     about: row.about,
     photoPath: row.photo_path,
@@ -70,9 +72,11 @@ export const familyService = {
       last_name: person.lastName || null,
       gender: person.gender || null,
       date_of_birth: person.dateOfBirth || null,
+      date_of_birth_precision: person.dateOfBirthPrecision || 'unknown',
       estimated_age: person.estimatedAge ?? null,
       is_deceased: person.isDeceased || false,
       date_of_death: person.dateOfDeath || null,
+      date_of_death_precision: person.dateOfDeathPrecision || 'unknown',
       birthplace: person.birthplace || null,
       about: person.about || null,
       photo_path: person.photoPath || null
@@ -150,9 +154,11 @@ export const familyService = {
     if ('lastName' in patch) payload.last_name = patch.lastName || null;
     if ('gender' in patch) payload.gender = patch.gender || null;
     if ('dateOfBirth' in patch) payload.date_of_birth = patch.dateOfBirth || null;
+    if ('dateOfBirthPrecision' in patch) payload.date_of_birth_precision = patch.dateOfBirthPrecision || 'unknown';
     if ('estimatedAge' in patch) payload.estimated_age = patch.estimatedAge ?? null;
     if ('isDeceased' in patch) payload.is_deceased = patch.isDeceased;
     if ('dateOfDeath' in patch) payload.date_of_death = patch.dateOfDeath || null;
+    if ('dateOfDeathPrecision' in patch) payload.date_of_death_precision = patch.dateOfDeathPrecision || 'unknown';
     if ('birthplace' in patch) payload.birthplace = patch.birthplace || null;
     if ('about' in patch) payload.about = patch.about || null;
     const { data, error } = await supabase.from('people').update(payload).eq('tree_id', treeId).eq('id', personId).select().single();

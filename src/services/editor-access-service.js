@@ -1,16 +1,14 @@
 import { config } from '../config.js';
 import { getSupabase } from '../lib/supabase.js';
 
-async function editorMembership(supabase, userId) {
-  if (!userId) return null;
-  const { data, error } = await supabase
-    .from('tree_members')
-    .select('role')
-    .eq('tree_id', config.defaultTreeId)
-    .eq('user_id', userId)
-    .maybeSingle();
+async function currentAccess(supabase) {
+  const { data, error } = await supabase.rpc('current_family_access');
   if (error) throw error;
-  return data?.role === 'owner' || data?.role === 'editor' ? data.role : null;
+  return {
+    role: data?.role || null,
+    expiresAt: data?.expiresAt || null,
+    isAnonymous: Boolean(data?.isAnonymous)
+  };
 }
 
 export function invitationTokenFromUrl(address = window.location.href) {
@@ -26,15 +24,15 @@ export function clearInvitationFromAddress() {
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
-export async function getEditorAccess() {
+export async function getFamilyAccess() {
   const supabase = await getSupabase();
   const { data: { session }, error } = await supabase.auth.getSession();
   if (error) throw error;
-  const role = await editorMembership(supabase, session?.user?.id);
-  return { isEditor: Boolean(role), role, session };
+  if (!session) return { role: null, expiresAt: null, isAnonymous: false, session: null };
+  return { ...(await currentAccess(supabase)), session };
 }
 
-export async function claimEditorInvitation(inviteToken) {
+export async function claimFamilyInvitation(inviteToken) {
   const token = inviteToken?.trim();
   if (!token) throw new Error('This invitation link is incomplete.');
 
@@ -42,9 +40,9 @@ export async function claimEditorInvitation(inviteToken) {
   let { data: { session }, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) throw sessionError;
 
-  const existingRole = await editorMembership(supabase, session?.user?.id);
-  if (existingRole) {
-    return { isEditor: true, role: existingRole, alreadyEditor: true };
+  const existingAccess = session ? await currentAccess(supabase) : null;
+  if (existingAccess?.role) {
+    return { ...existingAccess, alreadyMember: true };
   }
 
   if (!session) {
@@ -53,35 +51,59 @@ export async function claimEditorInvitation(inviteToken) {
     session = data.session;
   }
 
-  const { data, error } = await supabase.rpc('claim_editor_invite', {
+  const { data, error } = await supabase.rpc('claim_family_invite', {
     invite_token: token
   });
   if (error) throw error;
 
-  return { isEditor: true, role: data?.role || 'editor', alreadyEditor: false };
+  return { role: data?.role || null, expiresAt: data?.expiresAt || null, isAnonymous: true, alreadyMember: false };
 }
 
-export async function createEditorInvitation(validDays = 14) {
+export async function createFamilyInvitations(role, validDays = 14, count = 1) {
   const days = Number(validDays);
-  if (!Number.isInteger(days) || days < 1 || days > 90) {
+  const quantity = Number(count);
+  if (role === 'editor' && (!Number.isInteger(days) || days < 1 || days > 90)) {
     throw new Error('Choose an invitation duration between 1 and 90 days.');
   }
+  if (!['editor', 'viewer'].includes(role)) throw new Error('Choose Editor or Viewer access.');
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) throw new Error('Create between 1 and 10 links.');
 
   const supabase = await getSupabase();
-  const { data, error } = await supabase.rpc('create_editor_invite', {
-    valid_days: days
+  const { data, error } = await supabase.rpc('create_family_invites', {
+    invite_role: role,
+    valid_days: days,
+    invite_count: quantity
   });
   if (error) throw error;
 
-  const invitation = Array.isArray(data) ? data[0] : data;
-  if (!invitation?.invite_url) throw new Error('The invitation link could not be created.');
-  return {
+  const invitations = Array.isArray(data) ? data : [data];
+  if (!invitations.length || !invitations[0]?.invite_url) throw new Error('The invitation links could not be created.');
+  return invitations.map(invitation => ({
     inviteUrl: invitation.invite_url,
+    role: invitation.role,
     expiresAt: invitation.expires_at
-  };
+  }));
 }
 
-export async function onEditorSessionChange(callback) {
+export async function signInOwner(email, password) {
+  const supabase = await getSupabase();
+  const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  if (error) throw error;
+  const access = await currentAccess(supabase);
+  if (access.role !== 'owner') {
+    await supabase.auth.signOut();
+    throw new Error('This account is not the family tree owner.');
+  }
+  return access;
+}
+
+export async function signOutFamilyAccess() {
+  const supabase = await getSupabase();
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
+
+export async function onFamilySessionChange(callback) {
   const supabase = await getSupabase();
   const { data } = supabase.auth.onAuthStateChange(() => callback());
   return () => data.subscription.unsubscribe();

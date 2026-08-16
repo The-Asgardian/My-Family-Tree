@@ -8,7 +8,7 @@ The approved product/UI specification is in [`DESIGN.md`](./DESIGN.md), with the
 
 The zero-build static app now runs exclusively against Supabase and includes:
 
-- portrait family-member cards
+- compact, accessible family-member profile cards
 - relationship connectors
 - person selection + right details panel
 - pan / zoom / fit / centre controls
@@ -18,7 +18,8 @@ The zero-build static app now runs exclusively against Supabase and includes:
 - toggleable colour bands for each vertical generation
 - structured first names with automatic Singh/Kaur middle names
 - relationship-derived surnames: father for children/men, husband for married women, with Hayre as the original family root
-- `dd/mm/yyyy` date entry and display
+- historical dates recorded as unknown, year, month/year, or full `dd/mm/yyyy`
+- explicit siblings, multiple spouses, and safe previous-generation layout
 - persistent add-relative flow
 - a UI-only root node for an empty tree
 - one fixed family tree with reliable first-use creation
@@ -27,8 +28,10 @@ The zero-build static app now runs exclusively against Supabase and includes:
 - server-enforced WebP-only portrait uploads with a 2 MiB bucket limit
 - private photo storage with short-lived signed URLs
 - live refresh when another editor changes a tree
-- one-use private editor links with persistent, device-bound access
-- public view-only mode with editor-only database and photo writes
+- owner login plus private one-use viewer/editor links generated in batches
+- permanent device-bound viewer links and time-limited editor access
+- private member-only reads with editor/owner-only database and photo writes
+- a saved light/dark theme with higher-contrast colours in both modes
 - RLS, audit logging, storage policies and Realtime publication setup
 
 ## Run locally
@@ -66,15 +69,16 @@ Apply the SQL migrations in `supabase/migrations/` through the Supabase CLI
 before using the app. They intentionally contain no family seed data, and local
 Supabase seeding is disabled.
 
-This deployment has exactly one family tree and no sign-in page. While that tree
+This deployment has exactly one family tree and no public sign-up page. While that tree
 is empty, the canvas shows one UI-only root node. Selecting the root creates the
 first persisted person. Every later family member is added as a relation to a
 persisted person. The database migration prevents a second tree from being
 created.
 
-Anyone who opens the app can view the tree. Editing requires a private one-use
-invitation link; accepting it happens silently without a password or sign-in
-page and persists on that browser/device. See
+The family tree is private. The owner signs in from Settings; everyone else uses
+a one-use private link which silently binds access to that browser/device.
+Viewer links do not expire, while editor access expires on the date selected by
+the owner. See
 [`docs/editor-invitations.md`](./docs/editor-invitations.md).
 
 Never put a Supabase service-role key in this repository or in browser code.

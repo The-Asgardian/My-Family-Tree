@@ -3,12 +3,32 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#ffffff" />
+  <meta name="theme-color" content="#f3f6fb" />
   <meta name="description" content="A simple persistent family tree." />
   <title>Family Tree</title>
-  <link rel="stylesheet" href="./src/styles.css?v=20260812-private-editors" />
+  <script>
+    (() => {
+      let savedTheme = null;
+      try { savedTheme = localStorage.getItem('family-tree-theme'); } catch {}
+      const theme = savedTheme === 'light' || savedTheme === 'dark'
+        ? savedTheme
+        : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
+  <link rel="stylesheet" href="./src/styles.css?v=20260816-private-family" />
 </head>
 <body>
+  <section id="accessGate" class="access-gate" hidden aria-labelledby="accessGateTitle">
+    <div class="access-card">
+      <span class="access-mark" aria-hidden="true">⌘</span>
+      <p class="eyebrow">Private family space</p>
+      <h1 id="accessGateTitle">My Family Tree</h1>
+      <p>Open the private link your family sent you. The owner can sign in on this device.</p>
+      <button id="gateOwnerLoginButton" class="primary-button" type="button">Owner sign in</button>
+      <small>Viewer links are permanent. Editor links expire automatically.</small>
+    </div>
+  </section>
   <div id="app" class="app-shell">
     <header class="topbar">
       <button class="family-title ghost-button" id="familyMenuButton" type="button" aria-label="Fit family tree in view">
@@ -25,6 +45,9 @@
 
       <div class="header-actions">
         <span id="connectionStatus" class="connection-status waiting" aria-live="polite">Connecting…</span>
+        <span id="accessRoleBadge" class="role-badge" hidden></span>
+        <button id="themeToggleButton" class="icon-button theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode"><span aria-hidden="true">☾</span></button>
+        <button id="settingsButton" class="icon-button" type="button" aria-label="Open settings" title="Settings"><span aria-hidden="true">⚙</span></button>
         <button id="inviteEditorButton" class="secondary-button invite-editor-button" type="button" hidden><span>↗</span> <b>Invite</b></button>
         <button id="addPersonButton" class="primary-button" type="button"><span>＋</span> Add person</button>
       </div>
@@ -115,16 +138,26 @@
           </div>
           <small id="middleNameHint" class="field-hint">Singh or Kaur is set automatically from gender.</small>
           <small id="surnameHint" class="field-hint">Suggested from the family tree. You can change it.</small>
-          <label>Date of birth<input id="personDobInput" name="dob" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="bday" /></label>
+          <div class="date-field">
+            <label>Birth date detail<select id="personDobPrecisionInput" name="dobPrecision"><option value="unknown">Unknown</option><option value="year">Year only</option><option value="month">Month and year</option><option value="day" selected>Full date</option></select></label>
+            <label id="personDobValueLabel">Date of birth<input id="personDobInput" name="dob" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="bday" /></label>
+          </div>
           <label>Approximate age<input id="personAgeInput" name="estimatedAge" type="number" min="0" max="130" inputmode="numeric" /></label>
           <label class="switch-row"><span>Living</span><input id="personLivingInput" name="living" type="checkbox" checked /></label>
+          <div id="relationshipOptions" class="relationship-options" hidden>
+            <label id="coParentField" hidden>Other parent<select id="coParentInput"><option value="">No other parent</option></select></label>
+            <label id="sharedParentField" class="check-row" hidden><input id="sharedParentInput" type="checkbox" checked /><span id="sharedParentLabel">Also connect this parent to their siblings</span></label>
+          </div>
         </div>
       </div>
       <details class="more-details">
         <summary>＋ More details</summary>
         <div class="expanded-fields">
           <label>Birthplace<input id="personBirthplaceInput" name="birthplace" /></label>
-          <label>Date of death<input id="personDeathInput" name="deathDate" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" /></label>
+          <div class="date-field">
+            <label>Death date detail<select id="personDeathPrecisionInput" name="deathPrecision"><option value="unknown">Unknown</option><option value="year">Year only</option><option value="month">Month and year</option><option value="day">Full date</option></select></label>
+            <label id="personDeathValueLabel">Date of death<input id="personDeathInput" name="deathDate" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" /></label>
+          </div>
           <label>About<textarea id="personAboutInput" name="about" rows="3"></textarea></label>
         </div>
       </details>
@@ -159,26 +192,68 @@
   <dialog id="inviteEditorDialog" class="modal invitation-modal">
     <div class="modal-head">
       <div>
-        <h2>Invite a family editor</h2>
-        <p>Create a private, one-use link. It unlocks editing only on the first device that opens it.</p>
+        <h2>Create private family links</h2>
+        <p>Each link belongs to one person and unlocks access only on the first device that opens it.</p>
       </div>
       <button class="icon-button modal-close" type="button" data-close-dialog="inviteEditorDialog" aria-label="Close invitation">×</button>
     </div>
     <form id="inviteEditorForm" class="simple-form">
-      <label>Link expires after
+      <label>Access type
+        <select id="inviteRoleInput"><option value="editor">Editor · temporary</option><option value="viewer">Viewer · permanent</option></select>
+      </label>
+      <label id="inviteDurationField">Editor access lasts
         <select id="inviteDurationInput"><option value="1">1 day</option><option value="7">7 days</option><option value="14" selected>14 days</option><option value="30">30 days</option></select>
       </label>
-      <button id="createInviteButton" class="primary-button wide-button" type="submit">Create private link</button>
+      <label>Number of links
+        <select id="inviteCountInput"><option value="1">1 link</option><option value="3" selected>3 links</option><option value="5">5 links</option></select>
+      </label>
+      <button id="createInviteButton" class="primary-button wide-button" type="submit">Create private links</button>
       <div id="inviteResult" class="invite-result" hidden>
-        <label>One-use editor link<input id="inviteLinkOutput" type="text" readonly /></label>
-        <button id="copyInviteButton" class="secondary-button wide-button" type="button">Copy link</button>
+        <p class="invite-safety">Each link works once. Copy one link at a time and send it privately to one person.</p>
+        <div id="inviteLinksOutput" class="invite-links" aria-label="Private family links"></div>
       </div>
       <div id="inviteFormStatus" class="form-status" role="status"></div>
     </form>
   </dialog>
 
+  <dialog id="ownerLoginDialog" class="modal login-modal">
+    <div class="modal-head">
+      <div><h2>Owner sign in</h2><p>Use the private owner account configured in Supabase.</p></div>
+      <button class="icon-button modal-close" type="button" data-close-dialog="ownerLoginDialog" aria-label="Close owner sign in">×</button>
+    </div>
+    <form id="ownerLoginForm" class="simple-form">
+      <label>Email<input id="ownerEmailInput" type="email" autocomplete="username" required /></label>
+      <label>Password<input id="ownerPasswordInput" type="password" autocomplete="current-password" required /></label>
+      <div id="ownerLoginStatus" class="form-status" role="status"></div>
+      <button id="ownerLoginSubmit" class="primary-button wide-button" type="submit">Sign in</button>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDialog" class="modal settings-modal">
+    <div class="modal-head">
+      <div><h2>Settings</h2><p>These viewing preferences are saved on this device.</p></div>
+      <button class="icon-button modal-close" type="button" data-close-dialog="settingsDialog" aria-label="Close settings">×</button>
+    </div>
+    <div class="settings-content">
+      <section>
+        <h3>Appearance</h3>
+        <label>Colour theme<select id="settingsThemeInput"><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <label class="check-row"><input id="settingsGenerationBandsInput" type="checkbox" /><span>Show generation colours</span></label>
+        <label class="check-row"><input id="settingsAutoArrangeInput" type="checkbox" /><span>Auto arrange after family changes</span></label>
+      </section>
+      <section>
+        <h3>Access</h3>
+        <p id="settingsAccessSummary" class="settings-summary"></p>
+        <div class="settings-actions">
+          <button id="settingsOwnerLoginButton" class="secondary-button" type="button">Owner sign in</button>
+          <button id="settingsSignOutButton" class="secondary-button" type="button" hidden>Sign out on this device</button>
+        </div>
+      </section>
+    </div>
+  </dialog>
+
   <div id="toastRegion" class="toast-region" aria-live="polite"></div>
 
-  <script type="module" src="./src/app.js?v=20260812-private-editors"></script>
+  <script type="module" src="./src/app.js?v=20260816-private-family"></script>
 </body>
 </html>

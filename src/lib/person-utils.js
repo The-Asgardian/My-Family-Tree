@@ -1,17 +1,45 @@
 const DATE_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+const MONTH_PATTERN = /^(\d{2})\/(\d{4})$/;
+const YEAR_PATTERN = /^(\d{4})$/;
 
-export function formatDate(value) {
+export function formatDate(value, precision = 'day') {
+  if (precision === 'unknown') return 'Unknown';
   if (!value) return '';
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
   if (!match) return String(value);
+  if (precision === 'year') return match[1];
+  if (precision === 'month') return `${match[2]}/${match[1]}`;
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
-export function parseDateInput(value) {
+export function dateInputValue(value, precision = 'day') {
+  if (!value || precision === 'unknown') return '';
+  return formatDate(value, precision);
+}
+
+export function parseDateInput(value, precision = 'day') {
   const input = String(value || '').trim();
-  if (!input) return null;
+  if (precision === 'unknown') return null;
+  if (!input) throw new Error('Add the known date, or choose Unknown.');
+
+  if (precision === 'year') {
+    const match = YEAR_PATTERN.exec(input);
+    if (!match) throw new Error('Enter the year as yyyy.');
+    const year = Number(match[1]);
+    if (year < 1000 || year > 9999) throw new Error('Enter a valid four-digit year.');
+    return `${match[1]}-01-01`;
+  }
+
+  if (precision === 'month') {
+    const match = MONTH_PATTERN.exec(input);
+    if (!match) throw new Error('Enter the month and year as mm/yyyy.');
+    const month = Number(match[1]);
+    if (month < 1 || month > 12) throw new Error('Enter a valid month and year as mm/yyyy.');
+    return `${match[2]}-${match[1]}-01`;
+  }
+
   const match = DATE_PATTERN.exec(input);
-  if (!match) throw new Error('Enter dates as dd/mm/yyyy.');
+  if (!match) throw new Error('Enter the full date as dd/mm/yyyy.');
   const [, day, month, year] = match;
   const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
   if (
@@ -20,6 +48,10 @@ export function parseDateInput(value) {
     || date.getUTCDate() !== Number(day)
   ) throw new Error('Enter a valid date as dd/mm/yyyy.');
   return `${year}-${month}-${day}`;
+}
+
+export function datePrecisionLabel(precision = 'unknown') {
+  return ({ unknown: 'Unknown', year: 'Year only', month: 'Month and year', day: 'Full date' })[precision] || 'Unknown';
 }
 
 export function middleNameForGender(gender) {
