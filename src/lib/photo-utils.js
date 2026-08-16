@@ -3,6 +3,7 @@ const TARGET_BYTES = 1.5 * 1024 * 1024;
 const MAX_OUTPUT_DIMENSION = 1200;
 
 export const MAX_CROP_ZOOM = 4;
+export const MIN_CROP_ZOOM = 0.01;
 
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
@@ -52,13 +53,15 @@ export function computeCropRect(width, height, crop = {}) {
   }
 
   const requestedZoom = Number(crop.zoom);
-  const zoom = clamp(Number.isFinite(requestedZoom) ? requestedZoom : 1, 1, MAX_CROP_ZOOM);
+  const zoom = clamp(Number.isFinite(requestedZoom) ? requestedZoom : 1, MIN_CROP_ZOOM, MAX_CROP_ZOOM);
   const size = Math.min(width, height) / zoom;
   const half = size / 2;
   const requestedFocusX = Number(crop.focusX);
   const requestedFocusY = Number(crop.focusY);
-  const centreX = clamp((Number.isFinite(requestedFocusX) ? requestedFocusX : 0.5) * width, half, width - half);
-  const centreY = clamp((Number.isFinite(requestedFocusY) ? requestedFocusY : 0.5) * height, half, height - half);
+  // The crop centre may reach any point on the source image, including its
+  // exact edges and corners. Areas beyond the image are intentionally black.
+  const centreX = clamp((Number.isFinite(requestedFocusX) ? requestedFocusX : 0.5) * width, 0, width);
+  const centreY = clamp((Number.isFinite(requestedFocusY) ? requestedFocusY : 0.5) * height, 0, height);
 
   return {
     x: centreX - half,
@@ -68,6 +71,50 @@ export function computeCropRect(width, height, crop = {}) {
     focusX: centreX / width,
     focusY: centreY / height
   };
+}
+
+export function fitPhotoZoom(width, height) {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error('The photo dimensions are invalid.');
+  }
+  return clamp(Math.min(width, height) / Math.max(width, height), MIN_CROP_ZOOM, 1);
+}
+
+export function computeVisibleCrop(width, height, cropRect) {
+  const sourceX = Math.max(0, cropRect.x);
+  const sourceY = Math.max(0, cropRect.y);
+  const sourceRight = Math.min(width, cropRect.x + cropRect.size);
+  const sourceBottom = Math.min(height, cropRect.y + cropRect.size);
+  const sourceWidth = Math.max(0, sourceRight - sourceX);
+  const sourceHeight = Math.max(0, sourceBottom - sourceY);
+  if (!sourceWidth || !sourceHeight) return null;
+
+  return {
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    destinationX: (sourceX - cropRect.x) / cropRect.size,
+    destinationY: (sourceY - cropRect.y) / cropRect.size,
+    destinationWidth: sourceWidth / cropRect.size,
+    destinationHeight: sourceHeight / cropRect.size
+  };
+}
+
+function drawPhotoWithinCrop(context, photo, cropRect, destinationSize) {
+  const visible = computeVisibleCrop(photo.width, photo.height, cropRect);
+  if (!visible) return;
+  context.drawImage(
+    photo.source,
+    visible.sourceX,
+    visible.sourceY,
+    visible.sourceWidth,
+    visible.sourceHeight,
+    visible.destinationX * destinationSize,
+    visible.destinationY * destinationSize,
+    visible.destinationWidth * destinationSize,
+    visible.destinationHeight * destinationSize
+  );
 }
 
 export function moveCropFocus(width, height, crop, dragX, dragY, viewportSize) {
@@ -94,9 +141,9 @@ export function drawCropPreview(canvas, photo, crop) {
   const context = canvas.getContext('2d', { alpha: false });
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = 'high';
-  context.fillStyle = '#fff';
+  context.fillStyle = '#000';
   context.fillRect(0, 0, canvasSize, canvasSize);
-  context.drawImage(photo.source, rect.x, rect.y, rect.size, rect.size, 0, 0, canvasSize, canvasSize);
+  drawPhotoWithinCrop(context, photo, rect, canvasSize);
   return rect;
 }
 
@@ -114,9 +161,9 @@ export async function createCroppedPhoto(file, photo, crop = {}) {
     const context = canvas.getContext('2d', { alpha: false });
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
-    context.fillStyle = '#fff';
+    context.fillStyle = '#000';
     context.fillRect(0, 0, dimension, dimension);
-    context.drawImage(photo.source, rect.x, rect.y, rect.size, rect.size, 0, 0, dimension, dimension);
+    drawPhotoWithinCrop(context, photo, rect, dimension);
     blob = await canvasBlob(canvas, 'image/webp', quality);
     if (blob.size <= TARGET_BYTES) break;
     dimension = Math.max(480, Math.round(dimension * 0.84));

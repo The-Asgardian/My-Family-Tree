@@ -16,7 +16,7 @@
       document.documentElement.dataset.theme = theme;
     })();
   </script>
-  <link rel="stylesheet" href="./src/styles.css?v=20260816-photo-positioning-3" />
+  <link rel="stylesheet" href="./src/styles.css?v=20260816-photo-free-canvas-1" />
 </head>
 <body>
   <section id="accessGate" class="access-gate" hidden aria-labelledby="accessGateTitle">
@@ -185,13 +185,16 @@
           <span class="photo-crop-circle" aria-hidden="true"></span>
         </div>
         <div class="photo-crop-controls">
-          <p>Drag the photo to reposition it. The circle shows the safe area used by compact profile cards.</p>
+          <p>Drag beyond any edge or corner. Uncovered areas are kept as black, and the circle shows the safe area used by compact profile cards.</p>
           <label class="photo-zoom-control" for="photoCropZoom">
             <span>Zoom</span>
             <output id="photoCropZoomValue" for="photoCropZoom">1.0×</output>
-            <input id="photoCropZoom" type="range" min="1" max="4" step="0.01" value="1" />
+            <input id="photoCropZoom" type="range" min="0.01" max="4" step="any" value="1" />
           </label>
-          <button id="photoCropReset" class="secondary-button" type="button">↺ Reset position</button>
+          <div class="photo-crop-position-actions">
+            <button id="photoCropFit" class="secondary-button" type="button">⊡ Fit whole image</button>
+            <button id="photoCropReset" class="secondary-button" type="button">↺ Reset crop</button>
+          </div>
           <p id="photoCropStatus" class="photo-crop-status" role="status"></p>
         </div>
       </div>
@@ -287,6 +290,6 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite"></div>
 
-  <script type="module" src="./src/app.js?v=20260816-photo-positioning-3"></script>
+  <script type="module" src="./src/app.js?v=20260816-photo-free-canvas-1"></script>
 </body>
 </html>

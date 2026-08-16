@@ -10,7 +10,7 @@ import {
   structuredNameFor
 } from './lib/person-utils.js';
 import { relationshipWarnings } from './lib/relationship-utils.js';
-import { PortraitCropper } from './lib/portrait-cropper.js?v=20260816-photo-positioning-3';
+import { PortraitCropper } from './lib/portrait-cropper.js?v=20260816-photo-free-canvas-1';
 import { buildAutomaticNames } from './lib/surname-utils.js';
 import {
   claimFamilyInvitation,

@@ -2,9 +2,10 @@ import {
   computeCropRect,
   createCroppedPhoto,
   drawCropPreview,
+  fitPhotoZoom,
   loadPhoto,
   moveCropFocus
-} from './photo-utils.js?v=20260816-photo-positioning-3';
+} from './photo-utils.js?v=20260816-photo-free-canvas-1';
 
 export class PortraitCropper {
   constructor(dialog) {
@@ -16,6 +17,7 @@ export class PortraitCropper {
     this.zoomInput = dialog.querySelector('#photoCropZoom');
     this.zoomOutput = dialog.querySelector('#photoCropZoomValue');
     this.resetButton = dialog.querySelector('#photoCropReset');
+    this.fitButton = dialog.querySelector('#photoCropFit');
     this.confirmButton = dialog.querySelector('#photoCropConfirm');
     this.status = dialog.querySelector('#photoCropStatus');
     this.cancelButtons = [...dialog.querySelectorAll('[data-crop-cancel]')];
@@ -39,6 +41,7 @@ export class PortraitCropper {
     });
     this.cancelButtons.forEach(button => button.addEventListener('click', () => this.cancel()));
     this.resetButton.addEventListener('click', () => this.reset());
+    this.fitButton.addEventListener('click', () => this.fitWholePhoto());
     this.zoomInput.addEventListener('input', () => this.setZoom(Number(this.zoomInput.value)));
     this.viewport.addEventListener('wheel', event => {
       if (!this.photo) return;
@@ -71,9 +74,10 @@ export class PortraitCropper {
     this.photo = photo;
     this.result = null;
     this.crop = { zoom: 1, focusX: 0.5, focusY: 0.5 };
+    this.zoomInput.min = String(fitPhotoZoom(photo.width, photo.height));
     this.zoomInput.value = '1';
     this.confirmButton.disabled = false;
-    this.status.textContent = `${photo.width} × ${photo.height}px · saved as a square WebP.`;
+    this.status.textContent = `${photo.width} × ${photo.height}px · uncovered space will be saved as black.`;
     const resultPromise = new Promise(resolve => { this.resolve = resolve; });
     try {
       this.dialog.showModal();
@@ -98,13 +102,14 @@ export class PortraitCropper {
     const rect = drawCropPreview(this.canvas, this.photo, this.crop);
     this.crop = { zoom: rect.zoom, focusX: rect.focusX, focusY: rect.focusY };
     this.zoomInput.value = String(rect.zoom);
-    this.zoomOutput.value = `${rect.zoom.toFixed(1)}×`;
+    this.zoomOutput.value = `${rect.zoom < 1 ? rect.zoom.toFixed(2) : rect.zoom.toFixed(1)}×`;
     this.zoomOutput.textContent = this.zoomOutput.value;
   }
 
   setZoom(zoom) {
     if (!this.photo) return;
-    const rect = computeCropRect(this.photo.width, this.photo.height, { ...this.crop, zoom });
+    const minimumZoom = Number(this.zoomInput.min) || fitPhotoZoom(this.photo.width, this.photo.height);
+    const rect = computeCropRect(this.photo.width, this.photo.height, { ...this.crop, zoom: Math.max(minimumZoom, zoom) });
     this.crop = { zoom: rect.zoom, focusX: rect.focusX, focusY: rect.focusY };
     this.render();
   }
@@ -113,6 +118,13 @@ export class PortraitCropper {
     if (!this.photo) return;
     this.crop = { zoom: 1, focusX: 0.5, focusY: 0.5 };
     this.status.textContent = `${this.photo.width} × ${this.photo.height}px · centred and reset.`;
+    this.render();
+  }
+
+  fitWholePhoto() {
+    if (!this.photo) return;
+    this.crop = { zoom: fitPhotoZoom(this.photo.width, this.photo.height), focusX: 0.5, focusY: 0.5 };
+    this.status.textContent = 'Whole image fitted · black space will be preserved.';
     this.render();
   }
 
@@ -168,6 +180,7 @@ export class PortraitCropper {
     if (!this.photo || this.confirmButton.disabled) return;
     this.confirmButton.disabled = true;
     this.resetButton.disabled = true;
+    this.fitButton.disabled = true;
     this.cancelButtons.forEach(button => { button.disabled = true; });
     this.processing = true;
     this.status.textContent = 'Preparing your portrait…';
@@ -178,6 +191,7 @@ export class PortraitCropper {
       this.status.textContent = error?.message || 'This photo could not be prepared.';
       this.confirmButton.disabled = false;
       this.resetButton.disabled = false;
+      this.fitButton.disabled = false;
       this.cancelButtons.forEach(button => { button.disabled = false; });
       this.processing = false;
     }
@@ -198,6 +212,7 @@ export class PortraitCropper {
     this.viewport.classList.remove('dragging');
     this.confirmButton.disabled = false;
     this.resetButton.disabled = false;
+    this.fitButton.disabled = false;
     this.cancelButtons.forEach(button => { button.disabled = false; });
     this.photo?.cleanup();
     this.photo = null;
