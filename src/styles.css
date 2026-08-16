@@ -245,8 +245,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .relationship-grid button:hover { border-color: var(--accent-border); background: var(--accent-soft); }.relationship-grid button span { font-size: 27px; }.relationship-grid button b { font-size: 13px; }
 .person-modal form { padding: 8px 22px 22px; }
 .person-form-grid { display: grid; grid-template-columns: 145px 1fr; gap: 18px; }
-.photo-upload { cursor: pointer; }.photo-preview { width: 145px; height: 180px; display: grid; place-content: center; justify-items: center; gap: 7px; overflow: hidden; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--surface-soft); color: var(--muted); }
-.photo-preview img { width: 100%; height: 100%; object-fit: cover; }.photo-preview span { font-size: 25px; }.photo-preview small { font-size: 11px; }
+.photo-upload { display: grid; align-content: start; gap: 7px; cursor: pointer; }.photo-preview { width: 145px; aspect-ratio: 1; display: grid; place-content: center; justify-items: center; gap: 7px; overflow: hidden; border: 1px dashed var(--border-strong); border-radius: 10px; background: var(--surface-soft); color: var(--muted); }
+.photo-preview img { width: 100%; height: 100%; object-fit: cover; }.photo-preview > span { font-size: 25px; }.photo-preview small { font-size: 11px; }
+.photo-upload-hint { max-width: 145px; color: var(--muted); font-size: 10px; line-height: 1.35; text-align: center; }
 .form-fields, .expanded-fields { display: grid; gap: 12px; }
 .form-fields label, .expanded-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
 .form-fields input, .form-fields select, .expanded-fields input, .expanded-fields select, .expanded-fields textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px 11px; color: var(--text); background: var(--input-bg); }
@@ -264,6 +265,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .more-details { margin-top: 17px; border-top: 1px solid var(--border); padding-top: 14px; }.more-details summary { color: var(--accent); cursor: pointer; font-size: 12px; }.expanded-fields { margin-top: 15px; }
 .form-status { min-height: 19px; margin-top: 8px; color: var(--muted); font-size: 11px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 9px; padding-top: 15px; border-top: 1px solid var(--border); }
+.photo-crop-modal { width: min(560px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); overflow-y: auto; }
+.photo-crop-modal form { padding: 4px 22px 22px; }
+.photo-crop-body { display: grid; justify-items: center; gap: 17px; }
+.photo-crop-viewport { position: relative; width: min(360px, calc(100vw - 72px)); aspect-ratio: 1; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--placeholder-bg); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); cursor: grab; touch-action: none; user-select: none; outline: none; }
+.photo-crop-viewport:focus-visible { box-shadow: 0 0 0 4px var(--focus-ring); }
+.photo-crop-viewport.dragging { cursor: grabbing; }
+.photo-crop-viewport canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
+.photo-crop-circle { position: absolute; inset: 6%; border: 2px solid rgba(255,255,255,.92); border-radius: 50%; box-shadow: 0 0 0 999px rgba(8,14,24,.2), 0 0 0 1px rgba(13,22,36,.35); pointer-events: none; }
+.photo-crop-controls { width: min(360px, 100%); display: grid; gap: 12px; }
+.photo-crop-controls > p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.photo-zoom-control { display: grid; grid-template-columns: 1fr auto; gap: 7px 12px; align-items: center; color: var(--muted); font-size: 11px; }
+.photo-zoom-control output { color: var(--text); font-variant-numeric: tabular-nums; }
+.photo-zoom-control input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.photo-crop-controls .secondary-button { justify-self: start; }
+.photo-crop-status { min-height: 17px; }
 .confirmation-modal { width: min(460px, calc(100vw - 28px)); }
 .confirmation-modal .simple-form { padding-top: 4px; }
 .confirmation-modal .simple-form strong { color: var(--text); letter-spacing: .05em; }
@@ -343,7 +359,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .zoom-toolbar { left: 10px; width: 44px; }.history-controls { left: 10px; bottom: 12px; }
   .mobile-details-button:not([hidden]) { display: block; }
   .relationship-grid { gap: 8px; }.relationship-grid button { min-height: 102px; }
-  .person-form-grid { grid-template-columns: 110px 1fr; gap: 12px; }.photo-preview { width:110px;height:145px; }
+  .person-form-grid { grid-template-columns: 110px 1fr; gap: 12px; }.photo-preview { width:110px; }.photo-upload-hint { max-width: 110px; }
   .name-fields { grid-template-columns: 1fr; }
   .date-field { grid-template-columns: 1fr; }
 }
@@ -361,6 +377,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .tree-action-buttons { top: 8px; right: 10px; }
   .tree-action-buttons .secondary-button { min-height: 36px; padding: 0 10px; font-size: 11px; }
   .zoom-toolbar { left: 10px; width: 42px; }
+  .photo-crop-modal { width: min(720px, calc(100vw - 20px)); }
+  .photo-crop-modal .modal-head { padding-top: 14px; padding-bottom: 8px; }
+  .photo-crop-modal form { padding-bottom: 14px; }
+  .photo-crop-body { grid-template-columns: minmax(190px, 260px) minmax(220px, 1fr); justify-items: stretch; gap: 18px; }
+  .photo-crop-viewport { width: min(230px, calc(100dvh - 180px)); justify-self: center; }
+  .photo-crop-controls { align-content: center; }
+  .photo-crop-modal .modal-actions { margin-top: 6px; padding-top: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

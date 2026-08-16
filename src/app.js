@@ -10,7 +10,7 @@ import {
   structuredNameFor
 } from './lib/person-utils.js';
 import { relationshipWarnings } from './lib/relationship-utils.js';
-import { optimisePhoto } from './lib/photo-utils.js';
+import { PortraitCropper } from './lib/portrait-cropper.js?v=20260816-photo-positioning-3';
 import { buildAutomaticNames } from './lib/surname-utils.js';
 import {
   claimFamilyInvitation,
@@ -154,6 +154,8 @@ const els = {
   settingsOwnerLoginButton: document.querySelector('#settingsOwnerLoginButton'),
   settingsSignOutButton: document.querySelector('#settingsSignOutButton')
 };
+
+const portraitCropper = new PortraitCropper(document.querySelector('#photoCropDialog'));
 
 function loadPreferences() {
   try {
@@ -1524,11 +1526,17 @@ function bindEvents() {
   els.personPhoto.addEventListener('change', event => {
     const file = event.target.files?.[0];
     if (!file) return;
-    els.formStatus.textContent = 'Optimising photo…';
-    const processing = optimisePhoto(file);
+    const previousPhotoFile = state.photoFile;
+    const previousStatus = els.formStatus.textContent;
+    els.formStatus.textContent = 'Opening photo editor…';
+    const processing = portraitCropper.open(file);
     state.photoProcessing = processing;
     processing.then(optimised => {
       if (state.photoProcessing !== processing) return;
+      if (!optimised) {
+        els.formStatus.textContent = previousStatus;
+        return;
+      }
       state.photoFile = optimised;
       clearPhotoPreview();
       state.photoPreviewUrl = URL.createObjectURL(optimised);
@@ -1537,10 +1545,11 @@ function bindEvents() {
       els.formStatus.textContent = `Photo ready as WebP${savedPercent ? ` · ${savedPercent}% smaller` : ''}.`;
     }).catch(error => {
       if (state.photoProcessing !== processing) return;
-      state.photoFile = null;
+      state.photoFile = previousPhotoFile;
       els.formStatus.textContent = error?.message || 'This photo could not be prepared.';
     }).finally(() => {
       if (state.photoProcessing === processing) state.photoProcessing = null;
+      els.personPhoto.value = '';
     });
   });
 

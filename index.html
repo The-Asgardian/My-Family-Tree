@@ -16,7 +16,7 @@
       document.documentElement.dataset.theme = theme;
     })();
   </script>
-  <link rel="stylesheet" href="./src/styles.css?v=20260816-private-family" />
+  <link rel="stylesheet" href="./src/styles.css?v=20260816-photo-positioning-3" />
 </head>
 <body>
   <section id="accessGate" class="access-gate" hidden aria-labelledby="accessGateTitle">
@@ -128,6 +128,7 @@
         <label class="photo-upload" for="personPhotoInput">
           <input id="personPhotoInput" type="file" accept="image/*" hidden />
           <span id="photoPreview" class="photo-preview"><span>＋</span><small>Add photo</small></span>
+          <small class="photo-upload-hint">Choose, then drag to position</small>
         </label>
         <div class="form-fields">
           <div class="name-fields">
@@ -165,6 +166,38 @@
       <div class="modal-actions">
         <button class="secondary-button" type="button" data-close-dialog="personDialog">Cancel</button>
         <button class="primary-button" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="photoCropDialog" class="modal photo-crop-modal" aria-labelledby="photoCropTitle">
+    <div class="modal-head">
+      <div>
+        <h2 id="photoCropTitle">Position portrait</h2>
+        <p>Choose exactly how this photo appears throughout the family tree.</p>
+      </div>
+      <button class="icon-button modal-close" type="button" data-crop-cancel aria-label="Cancel positioning photo">×</button>
+    </div>
+    <form id="photoCropForm">
+      <div class="photo-crop-body">
+        <div id="photoCropViewport" class="photo-crop-viewport" tabindex="0" aria-label="Portrait preview. Drag the photo to reposition it; use arrow keys for fine adjustments.">
+          <canvas id="photoCropCanvas"></canvas>
+          <span class="photo-crop-circle" aria-hidden="true"></span>
+        </div>
+        <div class="photo-crop-controls">
+          <p>Drag the photo to reposition it. The circle shows the safe area used by compact profile cards.</p>
+          <label class="photo-zoom-control" for="photoCropZoom">
+            <span>Zoom</span>
+            <output id="photoCropZoomValue" for="photoCropZoom">1.0×</output>
+            <input id="photoCropZoom" type="range" min="1" max="4" step="0.01" value="1" />
+          </label>
+          <button id="photoCropReset" class="secondary-button" type="button">↺ Reset position</button>
+          <p id="photoCropStatus" class="photo-crop-status" role="status"></p>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-crop-cancel>Cancel</button>
+        <button id="photoCropConfirm" class="primary-button" type="submit">Use photo</button>
       </div>
     </form>
   </dialog>
@@ -254,6 +287,6 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite"></div>
 
-  <script type="module" src="./src/app.js?v=20260816-private-family"></script>
+  <script type="module" src="./src/app.js?v=20260816-photo-positioning-3"></script>
 </body>
 </html>
